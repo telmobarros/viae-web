@@ -1,8 +1,8 @@
 // assets
-import { IconDashboard, IconKey, IconTargetArrow } from '@tabler/icons';
+import { IconDashboard, IconKey, IconTargetArrow, IconListCheck } from '@tabler/icons';
 
 // constant
-const icons = { IconDashboard, IconKey, IconTargetArrow };
+const icons = { IconDashboard, IconKey, IconTargetArrow, IconListCheck };
 
 // ==============================|| DASHBOARD MENU ITEMS ||============================== //
 
@@ -34,6 +34,14 @@ const datasetInstance = {
             type: 'item',
             url: '/solving-methodology',
             icon: icons.IconKey,
+            breadcrumbs: true
+        },
+        {
+            id: 'solverExecutions',
+            title: 'Solver Executions',
+            type: 'item',
+            url: '/solver-executions',
+            icon: icons.IconListCheck,
             breadcrumbs: true
         }
     ]

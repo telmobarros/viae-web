@@ -20,7 +20,8 @@ import {
     FormGroup,
     FormControl,
     Select,
-    MenuItem
+    MenuItem,
+    CircularProgress
 } from '@mui/material';
 import { styled, useTheme } from '@mui/material/styles';
 import { useSnackbar } from 'notistack';
@@ -57,6 +58,7 @@ const ObjectiveFunctionPage = () => {
     const [lexicographicalObjectives, setLexicographicalObjectives] = useState(initialObjectives);
     const [selectedObjectives, setSelectedObjectives] = useState(['cost']);
     const [weights, setWeights] = useState({ cost: 1 }); // Weights for objectives
+    const OBJECTIVE_STORAGE_KEY = 'objectiveDefinition';
 
     const instance = useSelector((state) => state.instance.instance);
     const [problemInstances, setProblemInstances] = useState([]);
@@ -67,6 +69,7 @@ const ObjectiveFunctionPage = () => {
     const [suggestedObjective, setSuggestedObjective] = useState(null);
     const [selectedOFComparisonCollection, setSelectedOFComparisonCollection] = useState(null);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [savingObjective, setSavingObjective] = useState(false);
 
     const handleOpenDialog = () => setDialogOpen(true);
     const handleCloseDialog = () => setDialogOpen(false);
@@ -103,6 +106,30 @@ const ObjectiveFunctionPage = () => {
         updateSuggestedObjective();
     }, [selectedOFComparisonCollection, selectedObjectives]);
 
+    // Hydrate from localStorage if the user defined objectives elsewhere
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(OBJECTIVE_STORAGE_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (parsed.mode) {
+                setIsAdvanced(parsed.mode === 'weighted');
+            }
+            if (parsed.lexicographic && Array.isArray(parsed.lexicographic) && parsed.lexicographic.length) {
+                setLexicographicalObjectives(parsed.lexicographic);
+                setSelectedObjectives(parsed.lexicographic.map((o) => o.value));
+            }
+            if (parsed.selectedObjectives && Array.isArray(parsed.selectedObjectives) && parsed.selectedObjectives.length) {
+                setSelectedObjectives(parsed.selectedObjectives);
+            }
+            if (parsed.weights) {
+                setWeights(parsed.weights);
+            }
+        } catch (e) {
+            // ignore malformed persisted data
+        }
+    }, []);
+
     useEffect(() => {
         if (!instance) return;
         authAxios
@@ -117,6 +144,47 @@ const ObjectiveFunctionPage = () => {
                 console.log(error);
             });
     }, [instance]);
+
+    // Load persisted objective for selected problem instance
+    useEffect(() => {
+        const loadObjectiveFromServer = async () => {
+            if (!problemInstanceId) return;
+            try {
+                const resp = await authAxios.get(`http://localhost:5000/api/v1/problem_instances/${problemInstanceId}`);
+                let obj = resp.data?.result?.objective_function;
+                if (typeof obj === 'string') {
+                    try {
+                        obj = JSON.parse(obj);
+                    } catch (parseErr) {
+                        obj = null;
+                    }
+                }
+                if (obj && typeof obj === 'object') {
+                    setIsAdvanced((obj.mode || 'lexicographic') === 'weighted');
+                    if (obj.lexicographic && Array.isArray(obj.lexicographic) && obj.lexicographic.length) {
+                        setLexicographicalObjectives(obj.lexicographic);
+                        setSelectedObjectives(obj.lexicographic.map((o) => o.value));
+                    }
+                    if (obj.weights) {
+                        setWeights(obj.weights);
+                    }
+                }
+            } catch (e) {
+                // ignore and keep defaults/local
+            }
+        };
+        loadObjectiveFromServer();
+    }, [problemInstanceId]);
+
+    // Persist current objective definition for reuse in solver configuration (minimal payload)
+    useEffect(() => {
+        const payload = isAdvanced ? { mode: 'weighted', weights } : { mode: 'lexicographic', lexicographic: lexicographicalObjectives };
+        try {
+            localStorage.setItem(OBJECTIVE_STORAGE_KEY, JSON.stringify(payload));
+        } catch (e) {
+            // best effort; ignore quota errors
+        }
+    }, [isAdvanced, lexicographicalObjectives, weights, selectedObjectives]);
 
     const handleToggleChange = (event) => {
         setIsAdvanced(event.target.checked);
@@ -249,6 +317,26 @@ const ObjectiveFunctionPage = () => {
             });
     };
 
+    const handleSaveObjective = async () => {
+        if (!problemInstanceId) {
+            enqueueSnackbar('Select a problem instance first', { variant: 'warning' });
+            return;
+        }
+        const objective_function = isAdvanced
+            ? { mode: 'weighted', weights }
+            : { mode: 'lexicographic', lexicographic: lexicographicalObjectives };
+        const payload = { objective_function };
+        setSavingObjective(true);
+        try {
+            await authAxios.put(`http://localhost:5000/api/v1/problem_instances/${problemInstanceId}`, payload);
+            enqueueSnackbar('Objective saved for this problem instance', { variant: 'success' });
+        } catch (err) {
+            enqueueSnackbar('Error saving objective', { variant: 'error' });
+        } finally {
+            setSavingObjective(false);
+        }
+    };
+
     return (
         <MainCard
             title="Objective Function Definition"
@@ -330,6 +418,9 @@ const ObjectiveFunctionPage = () => {
                         label={isAdvanced ? 'Advanced Mode' : 'Simple Mode'}
                         labelPlacement="start"
                     />
+                    <Button variant="contained" size="small" onClick={handleSaveObjective} disabled={savingObjective || !problemInstanceId}>
+                        {savingObjective ? <CircularProgress size={16} /> : 'Save Objective'}
+                    </Button>
                 </>
             }
         >

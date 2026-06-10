@@ -15,6 +15,8 @@ import {
 import 'leaflet/dist/leaflet.css';
 import * as d3 from 'd3';
 import { points3D, gridPlanes3D, lineStrips3D, lines3D } from 'd3-3d';
+import authAxios from 'utils/axios';
+import D3SolutionVisualizer from '../visualizers/D3SolutionVisualizer';
 
 const ITEM_HEIGHT = 48;
 const ITEM_PADDING_TOP = 8;
@@ -27,81 +29,36 @@ const MenuProps = {
     }
 };
 
+// Defaults replaced when API data loads
 const dummyNodes = {};
-const totalNodes = 100;
-const depotId = 1; // Random depot ID
-
-for (let i = 1; i <= totalNodes; i++) {
-    dummyNodes[i] = {
-        id: i,
-        label: i === depotId ? 'Depot' : `Customer ${i}`,
-        isDepot: i === depotId,
-        lat: 51.505 + Math.random() * 0.05,
-        lng: -0.09 + Math.random() * 0.05,
-        x: Math.random() * 300,
-        y: Math.random() * 300
-        //z: Math.random() * 100
-    };
-}
-
 const dummyLinks = [];
-const totalLinks = Math.floor(Math.random() * totalNodes * 2); // Random number of links
 
-for (let i = 0; i < totalLinks; i++) {
-    const sourceId = Math.floor(Math.random() * totalNodes) + 1;
-    const targetId = Math.floor(Math.random() * totalNodes) + 1;
-
-    // Ensure no self-loop and no duplicate links (same source and target)
-    if (sourceId !== targetId) {
-        dummyLinks.push({ source: sourceId, target: targetId });
-    }
-}
-
-// Generate random dummy solutions
-const generateDummySolutions = (solutionIds, maxRoutesPerSolution) => {
-    const solutions = {};
-    solutionIds.forEach((id) => {
-        const routes = [];
-        const numRoutes = Math.floor(Math.random() * maxRoutesPerSolution) + 1;
-        for (let j = 0; j < numRoutes; j++) {
-            const stops = [];
-            const routeLength = Math.floor(Math.random() * (totalNodes / 2)) + 1;
-            const usedNodes = new Set();
-            for (let k = 0; k < routeLength; k++) {
-                let nodeId;
-                do {
-                    nodeId = Math.floor(Math.random() * totalNodes) + 1;
-                } while (usedNodes.has(nodeId) || nodeId === depotId);
-                usedNodes.add(nodeId);
-                stops.push({ node_id: nodeId, sequence: k });
-            }
-            routes.push({ stops });
-        }
-        solutions[id] = { id, routes };
-    });
-    return solutions;
-};
-
-// Assume max 10 routes per solution, using given solutionIds
 const VRPVisualizer = ({ isGeographical, solutionIds }) => {
     const [nodes, setNodes] = useState(dummyNodes);
     const [links, setLinks] = useState(dummyLinks);
-    const [solutions, setSolutions] = useState([]);
+    const [solutions, setSolutions] = useState({});
     const [selectedSolutions, setSelectedSolutions] = useState([]);
     const [showLinks, setShowLinks] = useState(true);
 
     useEffect(() => {
-        // Update nodes and links based on selectedSolutions, fetch data from an API if necessary
-    }, [selectedSolutions]);
-
-    useEffect(() => {
-        // generate dummy solutions
-        const tmp_solutions = {};
-        for (const id of solutionIds) {
-            tmp_solutions[id] = generateDummySolutions([id], 10)[id];
+        async function load() {
+            if (!solutionIds || !solutionIds.length) return;
+            try {
+                const ids = solutionIds.join(',');
+                const res = await authAxios.get(`http://localhost:5000/api/v1/visualizer/solutions`, { params: { ids } });
+                const payload = res?.data?.result;
+                if (!payload) return;
+                setNodes(payload.instance.nodes || {});
+                setLinks(payload.instance.links || []);
+                setSolutions(payload.solutions || {});
+                // default select the provided solution ids
+                setSelectedSolutions(solutionIds);
+            } catch (e) {
+                // keep dummy if fails
+            }
         }
-        setSolutions({ ...tmp_solutions });
-    }, []);
+        load();
+    }, [solutionIds]);
 
     const handleSolutionChange = (event) => {
         const {
@@ -114,18 +71,23 @@ const VRPVisualizer = ({ isGeographical, solutionIds }) => {
         setShowLinks(event.target.checked);
     };
 
+    const firstNode = Object.values(nodes || {})[0];
+    const autoGeo = firstNode && firstNode.lat != null && firstNode.lng != null && (firstNode.x == null || firstNode.y == null);
+    const useGeo = isGeographical || autoGeo;
+
     return (
         <div>
-            <SolutionSelector solutionIds={solutionIds} selectedSolutions={selectedSolutions} onSolutionChange={handleSolutionChange} />
-            <FormControlLabel control={<Checkbox checked={showLinks} onChange={handleShowLinksChange} />} label="Show Links" />
-            {isGeographical ? (
-                <LeafletMap nodes={nodes} links={links} solutions={solutions} selectedSolutions={selectedSolutions} showLinks={showLinks} />
-            ) : nodes[1].z == null ? (
-                <SVGMap nodes={nodes} links={links} solutions={solutions} selectedSolutions={selectedSolutions} showLinks={showLinks} />
+            {useGeo ? (
+                <LeafletMap nodes={nodes} links={links} solutions={solutions} selectedSolutions={selectedSolutions} showLinks={true} />
             ) : (
-                <D33DMap nodes={nodes} links={links} solutions={solutions} selectedSolutions={selectedSolutions} showLinks={showLinks} />
+                <D3SolutionVisualizer
+                    instance={{ nodes, links, coordinates: 'euclidean' }}
+                    solutions={solutions}
+                    defaultSelected={selectedSolutions}
+                    mode="euclidean"
+                    height={500}
+                />
             )}
-            <Legend selectedSolutions={selectedSolutions} />
         </div>
     );
 };

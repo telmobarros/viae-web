@@ -8,6 +8,8 @@ import jwt_decode from 'jwt-decode';
 import { DepotsList } from './Depots';
 import { AccountList } from './Account';
 import { DatasetList, DatasetCreate, DatasetEdit } from './Datasets';
+import { DatasetInstanceList, DatasetInstanceCreate, DatasetInstanceEdit } from './DatasetInstances';
+import { DataSourceList, DataSourceCreate, DataSourceEdit } from './DataSources';
 
 // adds the access token to the headers of the request
 const httpClient = (url, options = {}) => {
@@ -20,7 +22,14 @@ const httpClient = (url, options = {}) => {
     }
     options.headers.set('Authorization', `Bearer ${tokensData.access_token}`);
     // options.headers.set('X-Custom-Header', 'foobar');
-    return fetchUtils.fetchJson(url, options);
+    return fetchUtils.fetchJson(url, options).catch((err) => {
+        if (err?.status === 401) {
+            localStorage.removeItem('tokens');
+            const from = window.location.pathname + window.location.search;
+            window.location.assign(`/pages/login/login3?from=${encodeURIComponent(from)}`);
+        }
+        throw err;
+    });
 };
 
 const baseDataProvider = FABProvider('http://localhost:5000/api/v1', httpClient);
@@ -57,6 +66,8 @@ const dataProvider = addRefreshAuthToDataProvider(baseDataProvider, refreshAuth)
 const AdminPage = () => (
     <Admin basename="/admin" dataProvider={dataProvider}>
         <Resource name="datasets" list={DatasetList} create={DatasetCreate} edit={DatasetEdit} />
+        <Resource name="dataset_instances" list={DatasetInstanceList} create={DatasetInstanceCreate} edit={DatasetInstanceEdit} />
+        <Resource name="data_sources" list={DataSourceList} create={DataSourceCreate} edit={DataSourceEdit} />
         <Resource name="depots" list={DepotsList} edit={EditGuesser} />
         <Resource name="accounts" list={AccountList} edit={EditGuesser} />
         <Resource name="nodes" list={ListGuesser} />

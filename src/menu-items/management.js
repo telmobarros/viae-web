@@ -28,6 +28,14 @@ const management = {
             url: '/risk-editor',
             icon: icons.IconBuilding,
             breadcrumbs: false
+        },
+        {
+            id: 'live-routes',
+            title: 'Live Routes',
+            type: 'item',
+            url: '/live',
+            icon: icons.IconBuilding,
+            breadcrumbs: false
         }
     ]
 };

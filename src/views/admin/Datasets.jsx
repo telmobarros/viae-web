@@ -804,7 +804,6 @@ export const DatasetCreate = () => (
             <TextInput source="reference.title" />
             <TextInput source="reference.year" />
             <TextInput source="reference.reference" />
-            <TextInput source="source" />
             <TextInput source="file_format" />
             <ArrayInput source="instances">
                 <SimpleFormIterator inline>
@@ -830,7 +829,6 @@ export const DatasetEdit = () => (
             <TextInput source="reference.title" />
             <TextInput source="reference.year" />
             <TextInput source="reference.reference" />
-            <TextInput source="source" />
             <TextInput source="file_format" />
             <ArrayInput source="instances">
                 <SimpleFormIterator inline>

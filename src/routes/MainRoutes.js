@@ -2,6 +2,7 @@ import { lazy } from 'react';
 
 // project imports
 import MainLayout from 'layout/MainLayout';
+import RequireAuth from './RequireAuth';
 import Loadable from 'ui-component/Loadable';
 
 // dashboard routing
@@ -12,6 +13,13 @@ const ObjectiveFunction = Loadable(lazy(() => import('views/objective-function')
 const OFComparisonCollectionPage = Loadable(lazy(() => import('views/of-comparison-collections/id')));
 const OFComparisonPage = Loadable(lazy(() => import('views/of-comparisons/id')));
 const SolvingMethodology = Loadable(lazy(() => import('views/solving-methodology')));
+const VisualizerPage = Loadable(lazy(() => import('views/visualizers')));
+const SolutionVisualizerPage = Loadable(lazy(() => import('views/visualizers/SolutionVisualizer')));
+const SolverExecutions = Loadable(lazy(() => import('views/solver-executions')));
+const SolverExecutionCharts = Loadable(lazy(() => import('views/solver-executions/ExecutionCharts')));
+
+// live routing
+const LiveRoutes = Loadable(lazy(() => import('views/live/LiveRoutes')));
 
 // utilities routing
 const UtilsTypography = Loadable(lazy(() => import('views/utilities/Typography')));
@@ -29,7 +37,11 @@ const RiskEditor = Loadable(lazy(() => import('views/risk/Edit')));
 
 const MainRoutes = {
     path: '/',
-    element: <MainLayout />,
+    element: (
+        <RequireAuth>
+            <MainLayout />
+        </RequireAuth>
+    ),
     children: [
         {
             path: '/',
@@ -53,12 +65,32 @@ const MainRoutes = {
             element: <SolvingMethodology />
         },
         {
+            path: 'solver-executions',
+            element: <SolverExecutions />
+        },
+        {
+            path: 'solver-executions/charts',
+            element: <SolverExecutionCharts />
+        },
+        {
+            path: 'live',
+            element: <LiveRoutes />
+        },
+        {
             path: 'of-comparison-collections/:id',
             element: <OFComparisonCollectionPage />
         },
         {
             path: 'of-comparisons/:id',
             element: <OFComparisonPage />
+        },
+        {
+            path: 'visualizer',
+            element: <VisualizerPage />
+        },
+        {
+            path: 'visualizer/solution',
+            element: <SolutionVisualizerPage />
         },
         {
             path: 'utils',

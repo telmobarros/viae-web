@@ -341,7 +341,6 @@ const OFComparisonPage = () => {
                         {radarChartData && (
                             <Grid container spacing={3} style={{ marginTop: 20 }}>
                                 <Grid item xs={12} md={6} lg={8}>
-                                    <>d3.js graph with all the nodes and the 2 solutions with different colors</>
                                     <VRPVisualizer
                                         isGeographical={false}
                                         solutionIds={[comparison.solution_id_1, comparison.solution_id_2]}

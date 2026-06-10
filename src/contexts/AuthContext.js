@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { createContext, useState } from 'react';
 import jwt_decode from 'jwt-decode';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const AuthContext = createContext();
 
@@ -16,6 +16,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     const navigate = useNavigate();
+    const location = useLocation();
 
     const login = async (payload) => {
         payload.refresh = true;
@@ -23,7 +24,8 @@ export const AuthProvider = ({ children }) => {
         const apiResponse = await axios.post('http://localhost:5000/api/v1/security/login', payload);
         localStorage.setItem('tokens', JSON.stringify(apiResponse.data));
         setUser(jwt_decode(apiResponse.data.access_token));
-        navigate('/');
+        const from = location?.state?.from || '/';
+        navigate(from, { replace: true });
     };
 
     const logout = async () => {
