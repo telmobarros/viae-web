@@ -1,8 +1,8 @@
 // assets
-import { IconDashboard, IconKey, IconTargetArrow, IconListCheck } from '@tabler/icons';
+import { IconDashboard, IconKey, IconTargetArrow, IconListCheck, IconShieldCheck, IconDatabase, IconFlask } from '@tabler/icons';
 
 // constant
-const icons = { IconDashboard, IconKey, IconTargetArrow, IconListCheck };
+const icons = { IconDashboard, IconKey, IconTargetArrow, IconListCheck, IconShieldCheck, IconDatabase, IconFlask };
 
 // ==============================|| DASHBOARD MENU ITEMS ||============================== //
 
@@ -43,6 +43,36 @@ const datasetInstance = {
             url: '/solver-executions',
             icon: icons.IconListCheck,
             breadcrumbs: true
+        },
+        {
+            id: 'exploration',
+            title: 'Exploration',
+            type: 'item',
+            url: '/admin/exploration',
+            icon: icons.IconFlask,
+            breadcrumbs: true
+        },
+        {
+            id: 'risk',
+            title: 'Risk',
+            type: 'collapse',
+            icon: icons.IconShieldCheck,
+            children: [
+                {
+                    id: 'riskModels',
+                    title: 'Risk Models',
+                    type: 'item',
+                    url: '/risk',
+                    breadcrumbs: true
+                },
+                {
+                    id: 'riskIndicators',
+                    title: 'Indicator Catalogue',
+                    type: 'item',
+                    url: '/risk/indicators',
+                    breadcrumbs: true
+                }
+            ]
         }
     ]
 };

@@ -788,6 +788,7 @@ export const DatasetList = () => (
     <List sort={{ field: 'id', order: 'ASC' }} actions={<ListActions />} empty={false}>
         <Datagrid rowClick="edit">
             <TextField source="id" />
+            <TextField source="sid" />
             <TextField source="name" />
         </Datagrid>
     </List>

@@ -20,6 +20,7 @@ const SolverExecutionCharts = Loadable(lazy(() => import('views/solver-execution
 
 // live routing
 const LiveRoutes = Loadable(lazy(() => import('views/live/LiveRoutes')));
+const LiveSolutions = Loadable(lazy(() => import('views/live/LiveSolutions')));
 
 // utilities routing
 const UtilsTypography = Loadable(lazy(() => import('views/utilities/Typography')));
@@ -32,6 +33,12 @@ const UtilsTablerIcons = Loadable(lazy(() => import('views/utilities/TablerIcons
 const SamplePage = Loadable(lazy(() => import('views/sample-page')));
 const Depots = Loadable(lazy(() => import('views/depots')));
 const RiskEditor = Loadable(lazy(() => import('views/risk/Edit')));
+const RiskModelsPage = Loadable(lazy(() => import('views/risk')));
+const RiskModelPage = Loadable(lazy(() => import('views/risk/id')));
+const RiskModelVisualization = Loadable(lazy(() => import('views/risk/visualization')));
+const RiskCollectionPage = Loadable(lazy(() => import('views/risk/collections/id')));
+const IndicatorsPage = Loadable(lazy(() => import('views/risk/indicators')));
+const ExplorationPage = Loadable(lazy(() => import('views/admin/Exploration')));
 
 // ==============================|| MAIN ROUTING ||============================== //
 
@@ -75,6 +82,10 @@ const MainRoutes = {
         {
             path: 'live',
             element: <LiveRoutes />
+        },
+        {
+            path: 'live/solutions',
+            element: <LiveSolutions />
         },
         {
             path: 'of-comparison-collections/:id',
@@ -148,6 +159,30 @@ const MainRoutes = {
         {
             path: 'risk-editor',
             element: <RiskEditor />
+        },
+        {
+            path: 'risk',
+            element: <RiskModelsPage />
+        },
+        {
+            path: 'risk/:id',
+            element: <RiskModelPage />
+        },
+        {
+            path: 'risk/:id/view',
+            element: <RiskModelVisualization />
+        },
+        {
+            path: 'risk/collections/:id',
+            element: <RiskCollectionPage />
+        },
+        {
+            path: 'risk/indicators',
+            element: <IndicatorsPage />
+        },
+        {
+            path: 'admin/exploration',
+            element: <ExplorationPage />
         }
     ]
 };

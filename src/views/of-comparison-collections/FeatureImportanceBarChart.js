@@ -1,46 +1,28 @@
 import PropTypes from 'prop-types';
 import { useState, useEffect } from 'react';
-import { useSelector } from 'react-redux';
 
-// material-ui
 import { useTheme } from '@mui/material/styles';
-import { Grid, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import { Grid, Typography } from '@mui/material';
 
-// third-party
 import ApexCharts from 'apexcharts';
 import Chart from 'react-apexcharts';
 
-// project imports
 import SkeletonTotalGrowthBarChart from 'ui-component/cards/Skeleton/TotalGrowthBarChart';
-import MainCard from 'ui-component/cards/MainCard';
-import { gridSpacing } from 'store/constant';
 
-// objectives labels
 import objectivesLabels from 'utils/objectivesLabels';
 
-// chart data
 const chartData = {
     height: 480,
     type: 'bar',
     options: {
         chart: {
-            toolbar: {
-                show: true
-            },
-            zoom: {
-                enabled: true
-            }
+            toolbar: { show: true },
+            zoom: { enabled: true }
         },
         responsive: [
             {
                 breakpoint: 480,
-                options: {
-                    legend: {
-                        position: 'bottom',
-                        offsetX: -10,
-                        offsetY: 0
-                    }
-                }
+                options: { legend: { position: 'bottom', offsetX: -10, offsetY: 0 } }
             }
         ],
         plotOptions: {
@@ -49,34 +31,20 @@ const chartData = {
                 borderRadiusApplication: 'end',
                 horizontal: true,
                 columnWidth: '50%',
-                distributed: true // Distribute the bars on the x-axis
+                distributed: true
             }
         },
-        xaxis: {
-            type: 'category',
-            categories: []
-        },
-        fill: {
-            type: 'solid'
-        },
-        dataLabels: {
-            enabled: true
-        },
-        grid: {
-            show: true
-        },
-        legend: {
-            show: false
-        }
+        xaxis: { type: 'category', categories: [] },
+        fill: { type: 'solid' },
+        dataLabels: { enabled: true },
+        grid: { show: true },
+        legend: { show: false }
     },
     series: []
 };
 
-// ==============================|| DASHBOARD DEFAULT - TOTAL GROWTH BAR CHART ||============================== //
-
-const FeatureImportanceBarChart = ({ isLoading, featureImportance, model }) => {
+const FeatureImportanceBarChart = ({ isLoading, featureImportance, model, featureLabels = {} }) => {
     const theme = useTheme();
-
     const [sortedFeatureImportance, setSortedFeatureImportance] = useState([]);
 
     const updateChart = () => {
@@ -84,59 +52,59 @@ const FeatureImportanceBarChart = ({ isLoading, featureImportance, model }) => {
             ApexCharts.exec(`feature-importance-bar-chart-${model}`, 'updateOptions', chartData.options);
             ApexCharts.exec(`feature-importance-bar-chart-${model}`, 'updateSeries', []);
         } else {
-            // Determine the best score
             const bestScore = sortedFeatureImportance[0].value;
             const colors = sortedFeatureImportance.map((result) =>
                 result.value === bestScore ? theme.palette.secondary.main : theme.palette.primary.main
             );
-            console.log(colors);
+
+            // Capture sorted list for tooltip closure
+            const sorted = sortedFeatureImportance;
+            const labels = featureLabels;
 
             const newChartData = {
                 ...chartData.options,
                 xaxis: {
                     type: 'category',
-                    categories: sortedFeatureImportance.map((feature) => feature.label)
+                    categories: sorted.map((f) => f.label)
                 },
-                colors: colors,
-                series: [
-                    {
-                        name: 'Results',
-                        data: sortedFeatureImportance.map((feature) => feature.value)
+                colors,
+                tooltip: {
+                    custom: ({ dataPointIndex, w }) => {
+                        const item = sorted[dataPointIndex];
+                        if (!item) return '';
+                        const fullName = labels?.[item.key];
+                        const title = fullName && fullName !== item.label ? `${item.label} — ${fullName}` : item.label;
+                        const value = w.globals.series[0][dataPointIndex];
+                        return `<div style="padding:6px 10px;font-size:0.8rem;line-height:1.4">
+                            <strong>${title}</strong><br/>
+                            ${typeof value === 'number' ? value.toFixed(4) : value}
+                        </div>`;
                     }
-                ]
-                // Show the difference between the best score and the other scores
-                /*dataLabels: {
-                    enabled: true,
-                    formatter: (val, opt) => (val === bestScore ? val : `${val} (${Math.abs(val - bestScore).toFixed(2)})`)
-                }*/
+                },
+                series: [{ name: 'Results', data: sorted.map((f) => f.value) }]
             };
             ApexCharts.exec(`feature-importance-bar-chart-${model}`, 'updateOptions', newChartData);
-            console.log(ApexCharts.getChartByID(`feature-importance-bar-chart-${model}`));
         }
     };
 
     useEffect(() => {
         if (!featureImportance) return;
-        // Create an array of objects with key, value, and label
         const transformedArray = Object.keys(featureImportance).map((key) => {
             const value = featureImportance[key];
             const labelObj = objectivesLabels.find((obj) => obj.value === key);
             return {
-                key: key,
-                value: value,
-                label: labelObj ? labelObj.label : key // Use the key as a fallback if label is not found
+                key,
+                value,
+                label: labelObj ? labelObj.label : key
             };
         });
-
-        // Sort the array by value in descending order
         transformedArray.sort((a, b) => b.value - a.value);
-
         setSortedFeatureImportance(transformedArray);
-    }, []);
+    }, [featureImportance]);
 
     useEffect(() => {
         updateChart();
-    }, [sortedFeatureImportance]);
+    }, [sortedFeatureImportance, featureLabels]);
 
     return (
         <>
@@ -147,9 +115,7 @@ const FeatureImportanceBarChart = ({ isLoading, featureImportance, model }) => {
                     {...chartData}
                     options={{
                         ...chartData.options,
-                        chart: {
-                            id: `feature-importance-bar-chart-${model}`
-                        }
+                        chart: { id: `feature-importance-bar-chart-${model}` }
                     }}
                 />
             )}
@@ -159,8 +125,9 @@ const FeatureImportanceBarChart = ({ isLoading, featureImportance, model }) => {
 
 FeatureImportanceBarChart.propTypes = {
     isLoading: PropTypes.bool,
-    featureImportance: PropTypes.array.isRequired,
-    model: PropTypes.string.isRequired
+    featureImportance: PropTypes.object.isRequired,
+    model: PropTypes.string.isRequired,
+    featureLabels: PropTypes.object
 };
 
 export default FeatureImportanceBarChart;

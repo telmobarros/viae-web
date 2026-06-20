@@ -214,7 +214,10 @@ const SolverConfigurationPage = () => {
     const initializationMethods = [
         { value: 'random', label: 'Random' },
         { value: 'greedy_nn', label: 'Greedy (Nearest Neighbor)' },
-        { value: 'savings', label: 'Savings' }
+        { value: 'savings', label: 'Savings (Clarke-Wright)' },
+        { value: 'kmeans', label: 'K-Means Seed' },
+        { value: 'sweep', label: 'Sweep (Gillett-Miller)' },
+        { value: 'cheapest_insertion', label: 'Cheapest Insertion' }
     ];
 
     const getObjectiveDefinition = () => {

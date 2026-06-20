@@ -30,6 +30,12 @@ const SelectInstanceDialog = ({ isOpen, onClose, onSelectInstance }) => {
     const columns = useMemo(
         () => [
             {
+                id: 'instanceId',
+                accessorFn: (row) => row.id,
+                header: 'Instance ID',
+                size: 60
+            },
+            {
                 id: 'name',
                 accessorKey: 'name',
                 header: 'Name',
@@ -41,24 +47,6 @@ const SelectInstanceDialog = ({ isOpen, onClose, onSelectInstance }) => {
                 header: 'Distance Type',
                 size: 100
             },
-            /*{
-                id: 'decimals',
-                accessorKey: 'decimals',
-                header: 'Decimals',
-                size: 100
-            },
-            {
-                id: 'rounding_rule',
-                accessorKey: 'rounding_rule',
-                header: 'Rounding Rule',
-                size: 150
-            },
-            {
-                id: 'symmetric',
-                accessorKey: 'symmetric',
-                header: 'Symmetric',
-                size: 100
-            },*/
             {
                 id: 'synthetic',
                 accessorKey: 'synthetic',
@@ -75,15 +63,16 @@ const SelectInstanceDialog = ({ isOpen, onClose, onSelectInstance }) => {
             },
             {
                 id: 'datasetId',
-                accessorFn: (row) => `${row.dataset.id} - ${row.dataset.name} (${row.dataset.reference.title})`,
-                header: 'Dataset ID',
+                accessorFn: (row) =>
+                    `${row.dataset.id} - ${row.dataset.name}${row.dataset.reference ? ` (${row.dataset.reference.title})` : ''}`,
+                header: 'Dataset',
                 size: 200,
+                sortingFn: (rowA, rowB) => rowA.original.dataset.id - rowB.original.dataset.id,
                 Cell: ({ cell }) => {
                     const { id, name, reference } = cell.row.original.dataset;
-
                     return (
                         <Box display="inline-block">
-                            <Tooltip title={reference.title} style={{ display: 'flex' }}>
+                            <Tooltip title={reference?.title || ''} style={{ display: 'flex' }}>
                                 <Typography variant="caption" color="textSecondary">
                                     #{id}
                                 </Typography>
@@ -145,7 +134,9 @@ const SelectInstanceDialog = ({ isOpen, onClose, onSelectInstance }) => {
     }, [isOpen, enqueueSnackbar]);
 
     useEffect(() => {
-        const selected = Object.keys(rowSelection).map((index) => datasets[parseInt(index, 10)]);
+        const selected = Object.keys(rowSelection)
+            .map((id) => datasets.find((d) => String(d.id) === id))
+            .filter(Boolean);
         setSelectedInstances(selected);
     }, [rowSelection, datasets]);
 
@@ -154,7 +145,9 @@ const SelectInstanceDialog = ({ isOpen, onClose, onSelectInstance }) => {
     };
 
     const handleSelect = () => {
-        const selected = Object.keys(rowSelection).map((index) => datasets[parseInt(index, 10)])[0];
+        const selected = Object.keys(rowSelection)
+            .map((id) => datasets.find((d) => String(d.id) === id))
+            .filter(Boolean)[0];
         onSelectInstance(selected);
     };
 
@@ -177,11 +170,20 @@ const SelectInstanceDialog = ({ isOpen, onClose, onSelectInstance }) => {
                     enableStickyHeader
                     autoResetPageIndex={false} // automatically reset the table back to the first page whenever sorting, filtering, or grouping occurs
                     paginateExpandedRows={false} // keep expanded sub rows with their parent row on the same page
-                    enableRowSelection
+                    getRowId={(row) => String(row.id)}
+                    enableRowSelection={(row) => !row.getIsGrouped()}
+                    muiSelectCheckboxProps={({ row }) => ({
+                        sx: row.getIsGrouped() ? { display: 'none' } : {}
+                    })}
                     enableMultiRowSelection={false}
                     onRowSelectionChange={setRowSelection}
                     initialState={{
                         grouping: ['datasetId'],
+                        sorting: [
+                            { id: 'datasetId', desc: true },
+                            { id: 'instanceId', desc: false }
+                        ],
+                        columnVisibility: { instanceId: false },
                         density: 'compact'
                     }}
                     state={{

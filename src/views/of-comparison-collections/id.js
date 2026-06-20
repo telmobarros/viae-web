@@ -6,6 +6,7 @@ import {
     Accordion,
     AccordionDetails,
     AccordionSummary,
+    Alert,
     Badge,
     Box,
     Divider,
@@ -363,6 +364,12 @@ const OFComparisonCollectionStatsSection = ({ isLoading, ofComparisonCollection 
                         <Typography variant="h5">Feature Importance</Typography>
                     </AccordionSummary>
                     <AccordionDetails>
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                            Feature importance shows which VRP objectives most strongly influenced pairwise solution preferences. The bars
+                            represent normalized coefficient magnitudes — a taller bar means the model weighted that objective more heavily
+                            when learning to predict which solution experts preferred. When both models (Linear Regression and Linear SVM)
+                            agree on the same top objective, that objective is the primary driver of expert preference in this collection.
+                        </Alert>
                         <Grid container spacing={2}>
                             <Grid item xs={12} sm={6}>
                                 <FeatureImportanceBarChart

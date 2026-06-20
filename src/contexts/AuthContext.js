@@ -14,6 +14,7 @@ export const AuthProvider = ({ children }) => {
         }
         return null;
     });
+    const [username, setUsername] = useState(() => localStorage.getItem('username') || null);
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -23,17 +24,21 @@ export const AuthProvider = ({ children }) => {
         payload.provider = 'db';
         const apiResponse = await axios.post('http://localhost:5000/api/v1/security/login', payload);
         localStorage.setItem('tokens', JSON.stringify(apiResponse.data));
+        localStorage.setItem('username', payload.username);
         setUser(jwt_decode(apiResponse.data.access_token));
+        setUsername(payload.username);
         const from = location?.state?.from || '/';
         navigate(from, { replace: true });
     };
 
     const logout = async () => {
         localStorage.removeItem('tokens');
+        localStorage.removeItem('username');
         setUser(null);
+        setUsername(null);
         navigate('/');
     };
-    return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
+    return <AuthContext.Provider value={{ user, username, login, logout }}>{children}</AuthContext.Provider>;
 };
 
 export default AuthContext;

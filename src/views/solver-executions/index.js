@@ -1,12 +1,64 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useSelector } from 'react-redux';
-import { Box, Button, Chip, CircularProgress, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import {
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    FormControl,
+    Grid,
+    InputLabel,
+    MenuItem,
+    Select,
+    Stack,
+    Tooltip,
+    Typography
+} from '@mui/material';
 import RefreshTwoToneIcon from '@mui/icons-material/RefreshTwoTone';
+import ReplayIcon from '@mui/icons-material/Replay';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import MapIcon from '@mui/icons-material/Map';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { DataGrid } from '@mui/x-data-grid';
 
 import MainCard from 'ui-component/cards/MainCard';
 import authAxios from 'utils/axios';
+
+const ConfigTooltip = ({ configuration }) => {
+    if (!configuration) return null;
+    const { mainHyperparameters, mainSearchOperators, engine, ...rest } = configuration;
+    const payload = { engine, ...rest, mainHyperparameters, mainSearchOperators };
+    const json = JSON.stringify(payload, null, 2);
+    return (
+        <Tooltip
+            title={
+                <Box
+                    component="pre"
+                    sx={{
+                        m: 0,
+                        p: 0.5,
+                        fontSize: '0.7rem',
+                        fontFamily: 'monospace',
+                        maxHeight: 320,
+                        maxWidth: 420,
+                        overflowY: 'auto',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                    }}
+                >
+                    {json}
+                </Box>
+            }
+            arrow
+            placement="left"
+            componentsProps={{ tooltip: { sx: { maxWidth: 440 } } }}
+        >
+            <InfoOutlinedIcon fontSize="small" sx={{ cursor: 'pointer', color: 'text.secondary' }} />
+        </Tooltip>
+    );
+};
 
 const statusColorMap = {
     PENDING: 'warning',
@@ -19,21 +71,18 @@ const statusColorMap = {
 const formatDateTime = (value) => {
     if (!value) return '—';
     try {
-        const date = new Date(value);
-        return date.toLocaleString();
-    } catch (err) {
+        return new Date(value).toLocaleString();
+    } catch {
         return value;
     }
 };
 
 const formatDuration = (value) => {
     if (value === null || value === undefined) return '—';
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return '—';
-    if (numericValue < 60) return `${numericValue.toFixed(1)} s`;
-    const minutes = Math.floor(numericValue / 60);
-    const seconds = Math.round(numericValue % 60);
-    return `${minutes}m ${seconds}s`;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    if (n < 60) return `${n.toFixed(1)} s`;
+    return `${Math.floor(n / 60)}m ${Math.round(n % 60)}s`;
 };
 
 const SolverExecutionsPage = () => {
@@ -42,8 +91,11 @@ const SolverExecutionsPage = () => {
     const [problemInstances, setProblemInstances] = useState([]);
     const [problemInstanceFilter, setProblemInstanceFilter] = useState('');
     const [executions, setExecutions] = useState([]);
+    const [rowCount, setRowCount] = useState(0);
+    const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: 10 });
     const [loadingInstances, setLoadingInstances] = useState(false);
     const [loadingExecutions, setLoadingExecutions] = useState(false);
+    const [rerunningId, setRerunningId] = useState(null);
     const [error, setError] = useState(null);
 
     useEffect(() => {
@@ -51,27 +103,19 @@ const SolverExecutionsPage = () => {
         setLoadingInstances(true);
         authAxios
             .get(`http://localhost:5000/api/v1/dataset_instances/${instance.id}`)
-            .then((apiResponse) => {
-                const list = apiResponse?.data?.result?.problem_instances || [];
+            .then((res) => {
+                const list = res?.data?.result?.problem_instances || [];
                 setProblemInstances(list);
-                if (!list.length) {
-                    setProblemInstanceFilter('');
-                    return;
-                }
                 setProblemInstanceFilter((prev) => {
-                    if (prev && prev !== 'all' && list.find((pi) => pi.id === prev)) {
-                        return prev;
-                    }
-                    return list[0].id;
+                    if (prev && prev !== 'all' && list.find((pi) => pi.id === prev)) return prev;
+                    return list.length ? list[0].id : '';
                 });
             })
             .catch(() => {
                 setProblemInstances([]);
                 setProblemInstanceFilter('');
             })
-            .finally(() => {
-                setLoadingInstances(false);
-            });
+            .finally(() => setLoadingInstances(false));
     }, [instance]);
 
     const fetchExecutions = useCallback(
@@ -82,119 +126,207 @@ const SolverExecutionsPage = () => {
             setLoadingExecutions(true);
             setError(null);
             try {
-                const params = { q: {} };
+                const filters = [];
                 if (filterValue && filterValue !== 'all') {
-                    params.q.filters = [
-                        {
-                            col: 'problem_instance',
-                            opr: 'rel_o_m',
-                            value: filterValue
-                        }
-                    ];
+                    filters.push({ col: 'problem_instance_id', opr: 'eq', value: filterValue });
                 }
+                const params = {
+                    q: JSON.stringify({
+                        filters,
+                        order_column: 'created_at',
+                        order_direction: 'desc',
+                        page: paginationModel.page,
+                        page_size: paginationModel.pageSize
+                    })
+                };
                 const response = await authAxios.get('http://localhost:5000/api/v1/solver_executions/', { params });
                 setExecutions(response?.data?.result || []);
-            } catch (err) {
+                setRowCount(response?.data?.count || 0);
+            } catch {
                 setError('Failed to load solver executions.');
             } finally {
                 setLoadingExecutions(false);
             }
         },
-        [instance, problemInstanceFilter]
+        [instance, problemInstanceFilter, paginationModel]
     );
 
     useEffect(() => {
         fetchExecutions();
     }, [fetchExecutions]);
 
+    useEffect(() => {
+        setPaginationModel((prev) => (prev.page === 0 ? prev : { ...prev, page: 0 }));
+    }, [problemInstanceFilter]);
+
+    const handleRerun = useCallback(
+        async (executionId) => {
+            setRerunningId(executionId);
+            try {
+                await authAxios.post(`http://localhost:5000/api/v1/solver_executions/${executionId}/rerun`);
+                await fetchExecutions();
+            } catch {
+                setError(`Failed to rerun execution ${executionId}.`);
+            } finally {
+                setRerunningId(null);
+            }
+        },
+        [fetchExecutions]
+    );
+
     const rows = useMemo(
         () =>
-            executions.map((execution) => ({
-                id: execution.id,
-                status: execution.status,
-                methodology: execution.configuration?.mainMethodology || '—',
-                problemInstanceName: execution.problemInstance?.name || '—',
-                datasetInstanceName: execution.problemInstance?.datasetInstance?.name || '—',
-                startTime: execution.startTime,
-                endTime: execution.endTime,
-                executionTime: execution.executionTime,
-                errorMessage: execution.errorMessage,
-                createdAt: execution.createdAt
+            executions.map((e) => ({
+                id: e.id,
+                status: e.status,
+                methodology: e.configuration?.mainMethodology || '—',
+                engine: e.configuration?.engine || 'python',
+                configuration: e.configuration || null,
+                problemInstanceName: e.problemInstance?.name || '—',
+                datasetInstanceName: e.problemInstance?.datasetInstance?.name || '—',
+                datasetName: e.problemInstance?.datasetInstance?.dataset?.name || '—',
+                executionTime: e.executionTime,
+                startTime: e.startTime,
+                endTime: e.endTime,
+                errorMessage: e.errorMessage || null
             })),
         [executions]
     );
 
     const columns = useMemo(
         () => [
-            { field: 'id', headerName: 'Execution ID', width: 130 },
+            { field: 'id', headerName: 'ID', width: 70 },
             {
                 field: 'status',
                 headerName: 'Status',
-                width: 150,
-                renderCell: (params) => {
-                    const color = statusColorMap[params.value] || 'default';
-                    return <Chip variant="outlined" size="small" color={color} label={params.value || 'Unknown'} />;
-                }
+                width: 130,
+                renderCell: (params) => (
+                    <Stack direction="row" alignItems="center" spacing={0.5}>
+                        <Chip
+                            variant="outlined"
+                            size="small"
+                            color={statusColorMap[params.value] || 'default'}
+                            label={params.value || 'Unknown'}
+                        />
+                        {params.row.errorMessage && (
+                            <Tooltip title={params.row.errorMessage} arrow>
+                                <ErrorOutlineIcon fontSize="small" color="error" />
+                            </Tooltip>
+                        )}
+                    </Stack>
+                )
             },
-            { field: 'methodology', headerName: 'Methodology', flex: 1, minWidth: 180 },
-            { field: 'problemInstanceName', headerName: 'Problem Instance', flex: 1, minWidth: 180 },
-            { field: 'datasetInstanceName', headerName: 'Dataset Instance', flex: 1, minWidth: 180 },
+            { field: 'methodology', headerName: 'Methodology', width: 140 },
+            {
+                field: 'engine',
+                headerName: 'Engine',
+                width: 90,
+                renderCell: (params) => (
+                    <Chip
+                        size="small"
+                        label={params.value === 'cpp' ? 'C++' : 'Python'}
+                        color={params.value === 'cpp' ? 'primary' : 'default'}
+                        variant={params.value === 'cpp' ? 'filled' : 'outlined'}
+                        sx={{ fontWeight: 600, fontSize: '0.7rem' }}
+                    />
+                )
+            },
+            {
+                field: 'configuration',
+                headerName: 'Config',
+                width: 60,
+                sortable: false,
+                filterable: false,
+                renderCell: (params) => <ConfigTooltip configuration={params.value} />
+            },
+            { field: 'datasetName', headerName: 'Dataset', width: 110 },
+            { field: 'datasetInstanceName', headerName: 'Dataset Instance', width: 130 },
+            { field: 'problemInstanceName', headerName: 'Problem Instance', width: 100 },
+            {
+                field: 'executionTime',
+                headerName: 'Duration',
+                width: 90,
+                valueFormatter: (params) => formatDuration(params.value)
+            },
             {
                 field: 'startTime',
-                headerName: 'Start Time',
-                width: 190,
+                headerName: 'Start',
+                width: 150,
                 valueFormatter: (params) => formatDateTime(params.value)
             },
             {
                 field: 'endTime',
-                headerName: 'End Time',
-                width: 190,
+                headerName: 'End',
+                width: 150,
                 valueFormatter: (params) => formatDateTime(params.value)
-            },
-            {
-                field: 'executionTime',
-                headerName: 'Duration',
-                width: 140,
-                valueFormatter: (params) => formatDuration(params.value)
             },
             {
                 field: 'errorMessage',
                 headerName: 'Error',
                 flex: 1,
-                minWidth: 220,
-                renderCell: (params) => (
-                    <Typography variant="body2" color={params.value ? 'error' : 'text.secondary'} noWrap>
-                        {params.value || '—'}
-                    </Typography>
-                )
+                width: 150,
+                renderCell: (params) =>
+                    params.value ? (
+                        <Tooltip title={params.value} arrow>
+                            <Typography
+                                variant="caption"
+                                color="error"
+                                sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}
+                            >
+                                {params.value}
+                            </Typography>
+                        </Tooltip>
+                    ) : null
             },
             {
                 field: 'actions',
                 headerName: 'Actions',
-                width: 260,
+                width: 230,
                 sortable: false,
                 filterable: false,
                 renderCell: (params) => (
-                    <Stack direction="row" spacing={1}>
-                        <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => navigate(`/visualizer/solution?executionId=${params.row.id}`)}
-                        >
-                            Visualize
-                        </Button>
-                        <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => navigate(`/solver-executions/charts?executionId=${params.row.id}`)}
-                        >
-                            Charts
-                        </Button>
+                    <Stack direction="row" spacing={0.5}>
+                        <Tooltip title="Visualize solution">
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<MapIcon fontSize="small" />}
+                                onClick={() => navigate(`/visualizer/solution?executionId=${params.row.id}`)}
+                            >
+                                Map
+                            </Button>
+                        </Tooltip>
+                        <Tooltip title="View convergence charts">
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<BarChartIcon fontSize="small" />}
+                                onClick={() => navigate(`/solver-executions/charts?executionId=${params.row.id}`)}
+                            >
+                                Charts
+                            </Button>
+                        </Tooltip>
+                        <Tooltip title="Rerun with same configuration">
+                            <span>
+                                <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="secondary"
+                                    startIcon={
+                                        rerunningId === params.row.id ? <CircularProgress size={12} /> : <ReplayIcon fontSize="small" />
+                                    }
+                                    onClick={() => handleRerun(params.row.id)}
+                                    disabled={rerunningId === params.row.id}
+                                >
+                                    Rerun
+                                </Button>
+                            </span>
+                        </Tooltip>
                     </Stack>
                 )
             }
         ],
-        [navigate]
+        [navigate, handleRerun, rerunningId]
     );
 
     if (!instance) {
@@ -216,9 +348,7 @@ const SolverExecutionsPage = () => {
                                 labelId="problem-instance-filter-label"
                                 label="Problem Instance"
                                 value={problemInstanceFilter || ''}
-                                onChange={(e) => {
-                                    setProblemInstanceFilter(e.target.value);
-                                }}
+                                onChange={(e) => setProblemInstanceFilter(e.target.value)}
                                 disabled={loadingInstances || !problemInstances.length}
                             >
                                 {problemInstances.map((pi) => (
@@ -252,19 +382,16 @@ const SolverExecutionsPage = () => {
                         columns={columns}
                         autoHeight
                         density="compact"
-                        disableRowSelectionOnClick
+                        disableSelectionOnClick
                         loading={loadingExecutions}
-                        pageSizeOptions={[10, 25, 50]}
-                        initialState={{
-                            pagination: {
-                                paginationModel: { pageSize: 10, page: 0 }
-                            }
-                        }}
-                        sx={{
-                            '& .MuiDataGrid-columnHeaders': {
-                                backgroundColor: (theme) => theme.palette.background.paper
-                            }
-                        }}
+                        paginationMode="server"
+                        rowCount={rowCount}
+                        rowsPerPageOptions={[10, 25, 50]}
+                        page={paginationModel.page}
+                        pageSize={paginationModel.pageSize}
+                        onPageChange={(page) => setPaginationModel((p) => ({ ...p, page }))}
+                        onPageSizeChange={(pageSize) => setPaginationModel((p) => ({ ...p, pageSize, page: 0 }))}
+                        sx={{ '& .MuiDataGrid-columnHeaders': { backgroundColor: (theme) => theme.palette.background.paper } }}
                     />
                 </Grid>
             </Grid>

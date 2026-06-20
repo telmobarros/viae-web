@@ -70,6 +70,7 @@ const ObjectiveFunctionPage = () => {
     const [selectedOFComparisonCollection, setSelectedOFComparisonCollection] = useState(null);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [savingObjective, setSavingObjective] = useState(false);
+    const [riskModelObjectives, setRiskModelObjectives] = useState([]);
 
     const handleOpenDialog = () => setDialogOpen(true);
     const handleCloseDialog = () => setDialogOpen(false);
@@ -143,6 +144,13 @@ const ObjectiveFunctionPage = () => {
             .catch((error) => {
                 console.log(error);
             });
+        authAxios
+            .get(`http://localhost:5000/api/v1/dataset_instances/${instance.id}/risk_models`)
+            .then((res) => {
+                const ready = (res.data?.result || []).filter((m) => m.state === 'READY' && m.enabled);
+                setRiskModelObjectives(ready.map((m) => ({ value: `risk_${m.model_id}`, label: `Risk: ${m.name}`, category: 'risk' })));
+            })
+            .catch(() => setRiskModelObjectives([]));
     }, [instance]);
 
     // Load persisted objective for selected problem instance
@@ -189,6 +197,8 @@ const ObjectiveFunctionPage = () => {
     const handleToggleChange = (event) => {
         setIsAdvanced(event.target.checked);
     };
+
+    const allObjectives = [...objectivesLabels, ...riskModelObjectives];
 
     const handleAddObjective = (objective) => {
         if (!selectedObjectives.includes(objective)) {
@@ -429,7 +439,7 @@ const ObjectiveFunctionPage = () => {
                 <Grid item xs={12}>
                     <FormControl component="fieldset">
                         <FormGroup row sx={{ justifyContent: 'center' }}>
-                            {objectivesLabels.map((objective) => (
+                            {allObjectives.map((objective) => (
                                 <Box
                                     sx={{
                                         display: 'inline-block', // Ensures the box wraps around the content
@@ -468,7 +478,7 @@ const ObjectiveFunctionPage = () => {
                                                 value={objective.value}
                                                 disabled={
                                                     !selectedObjectives.includes(objective.value) &&
-                                                    selectedObjectives.length >= objectivesLabels.length
+                                                    selectedObjectives.length >= allObjectives.length
                                                 }
                                                 sx={{
                                                     color: theme.palette.secondary['200'],
@@ -528,7 +538,7 @@ const ObjectiveFunctionPage = () => {
                                     <List ref={provided.innerRef} {...provided.droppableProps}>
                                         {lexicographicalObjectives.map((objective, index) => {
                                             const objectiveLabel =
-                                                objectivesLabels.find((obj) => obj.value === objective.value)?.label || objective.value;
+                                                allObjectives.find((obj) => obj.value === objective.value)?.label || objective.value;
                                             return (
                                                 <Draggable key={objective.value} draggableId={objective.value} index={index}>
                                                     {(provided) => (

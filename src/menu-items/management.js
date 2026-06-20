@@ -30,12 +30,26 @@ const management = {
             breadcrumbs: false
         },
         {
-            id: 'live-routes',
-            title: 'Live Routes',
-            type: 'item',
-            url: '/live',
+            id: 'live',
+            title: 'Live',
+            type: 'collapse',
             icon: icons.IconBuilding,
-            breadcrumbs: false
+            children: [
+                {
+                    id: 'live-map',
+                    title: 'Live Map',
+                    type: 'item',
+                    url: '/live',
+                    breadcrumbs: false
+                },
+                {
+                    id: 'live-solutions',
+                    title: 'Live Solutions',
+                    type: 'item',
+                    url: '/live/solutions',
+                    breadcrumbs: false
+                }
+            ]
         }
     ]
 };

@@ -17,6 +17,7 @@ import ReactWeather, { useOpenWeather } from 'react-open-weather';
 import BestResultsBarChart from './BestResultsBarChart';
 import GenericCard from './GenericCard';
 import StatsSection from './StatsSection';
+import NodeMapWidget from './NodeMapWidget';
 
 import authAxios from 'utils/axios';
 
@@ -40,7 +41,7 @@ const Dashboard = () => {
             .then((apiResponse) => {
                 console.log(apiResponse.data);
                 setProblemInstances(apiResponse.data.result.problem_instances);
-                setStats(apiResponse.data.result.stats);
+                setStats(apiResponse.data.result.stats ?? {});
                 setLoading(false);
             })
             .catch((error) => {
@@ -64,6 +65,9 @@ const Dashboard = () => {
                             <StatsSection isLoading={isLoading} stats={stats} />
                         </Grid>
                     </Grid>
+                </Grid>
+                <Grid item xs={12}>
+                    <NodeMapWidget instance={instance} />
                 </Grid>
                 <Grid item xs={12}>
                     <Grid container spacing={gridSpacing}>

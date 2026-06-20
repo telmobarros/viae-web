@@ -19,10 +19,13 @@ const SelectInstanceSection = () => {
     const handleOpenDialog = () => setDialogOpen(true);
     const handleCloseDialog = () => setDialogOpen(false);
 
+    const navigate = useNavigate();
+
     const handleSelectInstance = (instance) => {
         console.log('Selected Instance:', instance);
         dispatch({ type: SET_INSTANCE, instance: instance });
         setDialogOpen(false);
+        navigate('/');
     };
 
     return (
