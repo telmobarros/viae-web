@@ -1373,19 +1373,13 @@ const FormulaConfigCard = ({ model, axis, features, onModelChange }) => {
         setDialogOpen(true);
     };
 
+    // The collection's own selected candidate, not a lookup through
+    // `best_model` into a legacy `formula_*` column: those columns hold only
+    // raw-target variants, so a `*__log` or `pairwise_hinge_l2` selection would
+    // silently resolve to a different formula than the one that was chosen.
     const handlePickCollection = (collection) => {
         setSelectedCollection(collection);
-        const formulaByModel = {
-            linear_regression: collection.formula,
-            lasso: collection.formula_lasso,
-            ridge: collection.formula_ridge,
-            elasticnet: collection.formula_elasticnet,
-            polynomial: collection.formula_poly,
-            linear_svm: collection.formula_svm,
-            pysr: collection.formula_pysr
-        };
-        const best = collection.best_model;
-        setFormula((best && formulaByModel[best]) || collection.formula || '');
+        setFormula(collection.final_formula || '');
         setDialogOpen(false);
     };
 
@@ -1399,19 +1393,51 @@ const FormulaConfigCard = ({ model, axis, features, onModelChange }) => {
             .catch(() => enqueueSnackbar('Failed to create collection', { variant: 'error' }));
     };
 
+    // Deployment is a reviewed action with its own endpoint: it copies the
+    // structured candidate record (target type, normalization status,
+    // certificate, provenance) onto the model and refuses a candidate whose
+    // bounds are not certified, or whose feature configuration has drifted
+    // since calibration. A plain PUT of the formula string would record none of
+    // that and bypass both checks.
     const handlePersist = () => {
+        if (!selectedCollection?.id) {
+            enqueueSnackbar('Pick a collection first', { variant: 'warning' });
+            return;
+        }
         setPersisting(true);
-        const payload = {
-            [axis + '_formula']: formula,
-            [axis + '_collection_id']: selectedCollection?.id ?? null
-        };
-        authAxios
-            .put(`http://localhost:5000/api/v1/risk_models/${model.id}`, payload)
-            .then(() => {
-                enqueueSnackbar('Formula saved', { variant: 'success' });
-                onModelChange(payload);
+        const isEdited = formula !== (selectedCollection.final_formula || '');
+        const request = isEdited
+            ? authAxios.post(`http://localhost:5000/api/v1/risk_models/${model.id}/edit_formula`, {
+                  axis,
+                  formula,
+                  revalidate: true
+              })
+            : authAxios.post(`http://localhost:5000/api/v1/risk_models/${model.id}/apply_selected_formula`, {
+                  axis,
+                  collection_id: selectedCollection.id
+              });
+
+        request
+            .then((r) => {
+                const validation = r.data?.validation;
+                if (isEdited && validation && !validation.eligible_for_operational_scoring) {
+                    enqueueSnackbar(
+                        `Formula saved as a manual edit, but scoring stays blocked: ${validation.message || validation.status}`,
+                        { variant: 'warning', autoHideDuration: 8000 }
+                    );
+                } else {
+                    enqueueSnackbar(isEdited ? 'Manual edit recorded and revalidated' : 'Candidate deployed', {
+                        variant: 'success'
+                    });
+                }
+                onModelChange({ [axis + '_formula']: formula, [axis + '_collection_id']: selectedCollection.id });
             })
-            .catch(() => enqueueSnackbar('Failed to save formula', { variant: 'error' }))
+            .catch((e) =>
+                enqueueSnackbar(e?.response?.data?.message || e?.response?.data?.error || 'Failed to deploy formula', {
+                    variant: 'error',
+                    autoHideDuration: 8000
+                })
+            )
             .finally(() => setPersisting(false));
     };
 
@@ -1421,9 +1447,28 @@ const FormulaConfigCard = ({ model, axis, features, onModelChange }) => {
         () => [
             { accessorKey: 'id', header: 'ID', size: 60 },
             { accessorKey: 'n_comparisons', header: '# Comparisons', size: 130 },
-            { accessorKey: 'n_conflicts', header: '# Conflicts', size: 100 },
             {
-                accessorKey: 'formula',
+                accessorKey: 'final_operational_candidate',
+                header: 'Selected Candidate',
+                size: 170,
+                Cell: ({ cell, row }) =>
+                    cell.getValue() ? (
+                        <Box>
+                            <Typography variant="caption" display="block">
+                                {cell.getValue()}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                {row.original.operational_activation_status || row.original.selection_provenance || ''}
+                            </Typography>
+                        </Box>
+                    ) : (
+                        <Typography variant="caption" color="text.disabled">
+                            none selected
+                        </Typography>
+                    )
+            },
+            {
+                accessorKey: 'final_formula',
                 header: 'Formula',
                 size: 220,
                 Cell: ({ cell }) =>

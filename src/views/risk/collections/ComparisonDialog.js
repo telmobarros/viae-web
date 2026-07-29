@@ -118,16 +118,16 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
         }
     };
 
-    const handlePick = async (higherRisk) => {
+    const handlePick = async (choseLeft) => {
         if (!classification?.id) return;
         setLoading(true);
         try {
-            const pair = classification.pair;
+            const higherRisk = canonicalAnswer(choseLeft);
             await authAxios.put(`${API_BASE}/api/v1/risk_comparisons/${classification.id}`, {
                 higher_risk: higherRisk
             });
-            const label =
-                higherRisk === false ? nodeLabel(pair.node_id_1, pair.node_custom_1) : nodeLabel(pair.node_id_2, pair.node_custom_2);
+            const picked = choseLeft ? sides.left : sides.right;
+            const label = nodeLabel(picked.id, picked.custom);
             enqueueSnackbar(`${label} marked as higher risk`, { variant: 'success' });
             if (isEditMode) {
                 onClose(true);
@@ -152,6 +152,32 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
     const features = classification?.features ?? [];
     const pair = classification?.pair;
 
+    // The server randomizes which node is shown on the left and stores that
+    // choice on the row. Storage and pair selection stay in canonical
+    // (node_id_1, node_id_2) order — only the visual placement varies — so the
+    // client must honour the orientation it was given, otherwise the stored
+    // value would not describe what the expert actually saw.
+    const reversed = pair != null && classification?.displayed_first_node_id === pair.node_id_2;
+    const sides = pair
+        ? {
+              left: {
+                  id: reversed ? pair.node_id_2 : pair.node_id_1,
+                  custom: reversed ? pair.node_custom_2 : pair.node_custom_1,
+                  details: reversed ? pair.node_details_2 : pair.node_details_1,
+                  dt: reversed ? pair.node_dt_2 : pair.node_dt_1
+              },
+              right: {
+                  id: reversed ? pair.node_id_1 : pair.node_id_2,
+                  custom: reversed ? pair.node_custom_1 : pair.node_custom_2,
+                  details: reversed ? pair.node_details_1 : pair.node_details_2,
+                  dt: reversed ? pair.node_dt_1 : pair.node_dt_2
+              }
+          }
+        : null;
+
+    // Canonical `higher_risk`: false means node_id_1, true means node_id_2.
+    const canonicalAnswer = (choseLeft) => (reversed ? choseLeft : !choseLeft);
+
     const cellValue = (nodeDetails, featureId) => {
         const v = nodeDetails?.[`f${featureId}`];
         return v != null ? Number(v) : null;
@@ -175,15 +201,15 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
         legend: { show: true }
     };
 
-    const radarSeries = pair
+    const radarSeries = sides
         ? [
               {
-                  name: nodeLabel(pair.node_id_1, pair.node_custom_1),
-                  data: features.map((f) => cellValue(pair.node_details_1, f.feature_id) ?? 0)
+                  name: nodeLabel(sides.left.id, sides.left.custom),
+                  data: features.map((f) => cellValue(sides.left.details, f.feature_id) ?? 0)
               },
               {
-                  name: nodeLabel(pair.node_id_2, pair.node_custom_2),
-                  data: features.map((f) => cellValue(pair.node_details_2, f.feature_id) ?? 0)
+                  name: nodeLabel(sides.right.id, sides.right.custom),
+                  data: features.map((f) => cellValue(sides.right.details, f.feature_id) ?? 0)
               }
           ]
         : [];
@@ -212,8 +238,8 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
 
         if (!pair) return null;
 
-        const labelA = nodeLabel(pair.node_id_1, pair.node_custom_1);
-        const labelB = nodeLabel(pair.node_id_2, pair.node_custom_2);
+        const labelA = nodeLabel(sides.left.id, sides.left.custom);
+        const labelB = nodeLabel(sides.right.id, sides.right.custom);
 
         return (
             <Box>
@@ -225,7 +251,7 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
                                 <TableCell align="right" sx={{ fontWeight: 600, color: 'primary.main' }}>
                                     {labelA}
                                     <Typography variant="caption" display="block" color="text.secondary">
-                                        {formatDate(pair.node_dt_1)}
+                                        {formatDate(sides.left.dt)}
                                     </Typography>
                                 </TableCell>
                                 <TableCell align="center" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.72rem' }}>
@@ -237,15 +263,15 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
                                 <TableCell sx={{ fontWeight: 600, color: 'primary.main' }}>
                                     {labelB}
                                     <Typography variant="caption" display="block" color="text.secondary">
-                                        {formatDate(pair.node_dt_2)}
+                                        {formatDate(sides.right.dt)}
                                     </Typography>
                                 </TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {features.map((f) => {
-                                const v1 = cellValue(pair.node_details_1, f.feature_id);
-                                const v2 = cellValue(pair.node_details_2, f.feature_id);
+                                const v1 = cellValue(sides.left.details, f.feature_id);
+                                const v2 = cellValue(sides.right.details, f.feature_id);
                                 const sx1 = v1 != null && v2 != null && v1 > v2 ? { backgroundColor: '#FBE9E7' } : {};
                                 const sx2 = v1 != null && v2 != null && v2 > v1 ? { backgroundColor: '#FBE9E7' } : {};
                                 const w1 = computeWeighting(v1, f.weighting, f.stats);
@@ -285,10 +311,12 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
                                 </TableCell>
                                 <TableCell align="right" colSpan={2}>
                                     <Button
-                                        variant={isEditMode && classification?.higher_risk === false ? 'contained' : 'outlined'}
+                                        variant={
+                                            isEditMode && classification?.higher_risk === canonicalAnswer(true) ? 'contained' : 'outlined'
+                                        }
                                         size="small"
                                         fullWidth
-                                        onClick={() => handlePick(false)}
+                                        onClick={() => handlePick(true)}
                                         disabled={loading}
                                     >
                                         A — {labelA}
@@ -297,7 +325,7 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
                                 <TableCell colSpan={2}>
                                     <Button
                                         variant={
-                                            isEditMode && classification?.higher_risk === true
+                                            isEditMode && classification?.higher_risk === canonicalAnswer(false)
                                                 ? 'contained'
                                                 : isEditMode
                                                   ? 'outlined'
@@ -305,7 +333,7 @@ const ComparisonDialog = ({ open, onClose, collectionId, editComparisonId = null
                                         }
                                         size="small"
                                         fullWidth
-                                        onClick={() => handlePick(true)}
+                                        onClick={() => handlePick(false)}
                                         disabled={loading}
                                     >
                                         B — {labelB}

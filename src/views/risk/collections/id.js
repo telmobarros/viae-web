@@ -14,6 +14,11 @@ import {
     IconButton,
     LinearProgress,
     Stack,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
     Tooltip,
     Typography
 } from '@mui/material';
@@ -264,7 +269,159 @@ const ModelMetricColumn = ({ isLoading, modelMetrics, modelLabel, isBest }) => {
     );
 };
 
-const RiskCollectionStatsSection = ({ isLoading, metrics, bestModel, featureLabels }) => {
+// ── Structured candidate presentation ─────────────────────────────────────────
+// Candidates come from `GET /risk_collections/<id>/candidates`, not from the
+// deprecated `formula_*` columns. Each base family is fitted against both
+// Bradley-Terry targets, so 14 variants compete for 7 legacy columns — a
+// `*__log` or direct pairwise selection simply cannot be shown from them, and
+// `formula_svm` is retired (the direct pairwise hinge is `pairwise_hinge_l2`,
+// a different method from the legacy mirrored LinearSVC).
+
+const CANDIDATE_LABELS = {
+    linear_regression: 'Linear Regression',
+    lasso: 'Lasso',
+    ridge: 'Ridge',
+    elasticnet: 'Elastic Net',
+    polynomial: 'Polynomial (deg 2)',
+    pysr: 'Symbolic Regression',
+    pairwise_hinge_l2: 'Pairwise Hinge (L2)',
+    pairwise_logistic_l2: 'Pairwise Logistic (L2)'
+};
+
+const candidateLabel = (candidate) => {
+    const base = candidate.base_family || String(candidate.candidate_identifier).split('__')[0];
+    const label = CANDIDATE_LABELS[base] || base;
+    return candidate.candidate_identifier?.endsWith('__log') ? `${label} (log target)` : label;
+};
+
+const TARGET_LABELS = {
+    raw_bt_strength: 'raw BT strength',
+    log_bt_strength: 'log BT strength'
+};
+
+const ELIGIBILITY_COLOURS = {
+    eligible: 'success',
+    provisional_pending_certification: 'warning',
+    ineligible: 'error'
+};
+
+const fmt = (value, digits = 4) => (typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—');
+
+const SelectionSummary = ({ data }) => {
+    if (!data) return null;
+    const selection = data.selection || {};
+    const rows = [
+        ['Predictive selection', selection.predictive_selection_status],
+        ['Normalization eligibility', selection.normalization_eligibility_status],
+        ['Operational activation', selection.operational_activation_status],
+        ['Provenance', data.selection_provenance],
+        ['Best by held-out performance', data.best_predictive_candidate],
+        ['Best currently eligible', data.best_currently_eligible_candidate],
+        ['Selected for operation', data.final_operational_candidate],
+        ['Selected target', TARGET_LABELS[data.final_target_type] || data.final_target_type]
+    ].filter(([, value]) => value != null && value !== '');
+
+    return (
+        <Box sx={{ mb: 2 }}>
+            <Alert severity="info" sx={{ mb: 1 }}>
+                These three verdicts are reported separately because they routinely disagree. A candidate can win on held-out evidence and
+                still be ineligible for operation if its score bounds are not certified over the configured feature box — in which case
+                nothing is activated automatically and a reviewer decides.
+            </Alert>
+            <Stack direction="row" flexWrap="wrap" gap={1}>
+                {rows.map(([label, value]) => (
+                    <Chip key={label} size="small" variant="outlined" label={`${label}: ${value}`} />
+                ))}
+            </Stack>
+            {selection.diagnostic_message && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                    {selection.diagnostic_message}
+                </Typography>
+            )}
+        </Box>
+    );
+};
+
+const CandidateTable = ({ data, featureLabels }) => {
+    const candidates = data?.candidates || [];
+    if (!candidates.length) return null;
+    const metricName = candidates.find((c) => c.held_out_primary_metric_name)?.held_out_primary_metric_name;
+
+    return (
+        <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+                <TableHead>
+                    <TableRow>
+                        <TableCell>Candidate</TableCell>
+                        <TableCell>Target</TableCell>
+                        <TableCell>Fit</TableCell>
+                        <TableCell align="right">{metricName ? `Held-out ${metricName}` : 'Held-out'}</TableCell>
+                        <TableCell align="right">SE</TableCell>
+                        <TableCell align="right">Folds</TableCell>
+                        <TableCell>Normalization</TableCell>
+                        <TableCell>Eligibility</TableCell>
+                        <TableCell>Formula</TableCell>
+                    </TableRow>
+                </TableHead>
+                <TableBody>
+                    {candidates.map((candidate) => (
+                        <TableRow key={candidate.candidate_identifier} selected={candidate.is_final_operational} hover>
+                            <TableCell>
+                                <Typography variant="body2" sx={{ fontWeight: candidate.is_final_operational ? 700 : 400 }}>
+                                    {candidateLabel(candidate)}
+                                    {candidate.is_final_operational ? ' ★' : ''}
+                                </Typography>
+                                <Stack direction="row" spacing={0.5} sx={{ mt: 0.25 }}>
+                                    {candidate.is_best_predictive && <Chip size="small" label="best predictive" color="primary" />}
+                                    {candidate.is_best_currently_eligible && !candidate.is_final_operational && (
+                                        <Chip size="small" label="best eligible" color="success" variant="outlined" />
+                                    )}
+                                </Stack>
+                            </TableCell>
+                            <TableCell>
+                                <Typography variant="caption">
+                                    {TARGET_LABELS[candidate.target_type] ||
+                                        (candidate.target_type ? candidate.target_type : 'direct pairwise')}
+                                </Typography>
+                            </TableCell>
+                            <TableCell>
+                                <Typography variant="caption">{candidate.fit_status}</Typography>
+                            </TableCell>
+                            <TableCell align="right">{fmt(candidate.held_out_primary_metric)}</TableCell>
+                            <TableCell align="right">{fmt(candidate.held_out_standard_error)}</TableCell>
+                            <TableCell align="right">{candidate.n_successful_folds ?? '—'}</TableCell>
+                            <TableCell>
+                                <Typography variant="caption">{candidate.normalization_status || '—'}</Typography>
+                            </TableCell>
+                            <TableCell>
+                                {candidate.operational_eligibility ? (
+                                    <Chip
+                                        size="small"
+                                        label={candidate.operational_eligibility.replace(/_/g, ' ')}
+                                        color={ELIGIBILITY_COLOURS[candidate.operational_eligibility] || 'default'}
+                                    />
+                                ) : (
+                                    '—'
+                                )}
+                            </TableCell>
+                            <TableCell sx={{ maxWidth: 360 }}>
+                                {candidate.formula ? (
+                                    <FormulaWithTooltips formula={candidate.formula} featureLabels={featureLabels} />
+                                ) : (
+                                    <Typography variant="caption" color="text.secondary">
+                                        {candidate.diagnostic_message || '—'}
+                                    </Typography>
+                                )}
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        </Box>
+    );
+};
+
+const RiskCollectionStatsSection = ({ isLoading, metrics, featureLabels }) => {
     if (!metrics) {
         return (
             <Typography variant="h5" sx={{ textAlign: 'center', pb: 1 }}>
@@ -273,8 +430,9 @@ const RiskCollectionStatsSection = ({ isLoading, metrics, bestModel, featureLabe
         );
     }
 
+    // Legacy per-family in-sample metric blocks, only present on collections
+    // fitted before the structured records existed.
     const { linear_regression, linear_svm, lasso, ridge, elasticnet, polynomial, pysr } = metrics;
-    const best_model = bestModel;
     const allModels = [
         { key: 'linear_regression', label: 'Linear Regression', data: linear_regression },
         { key: 'lasso', label: 'Lasso', data: lasso },
@@ -284,15 +442,39 @@ const RiskCollectionStatsSection = ({ isLoading, metrics, bestModel, featureLabe
         { key: 'linear_svm', label: 'Linear SVM', data: linear_svm },
         { key: 'pysr', label: 'Symbolic Regression', data: pysr }
     ];
+    const hasLegacyMetrics = allModels.some((m) => m.data);
     const hasFeatureImportance = allModels.some((m) => m.data?.feature_importance && Object.keys(m.data.feature_importance).length > 0);
 
     return (
         <Grid container spacing={2}>
-            {allModels.map((m) => (
-                <Grid item xs={12} sm={6} md={3} key={m.key}>
-                    <ModelMetricColumn isLoading={isLoading} modelMetrics={m.data} modelLabel={m.label} isBest={best_model === m.key} />
+            {hasLegacyMetrics && (
+                <Grid item xs={12}>
+                    <Accordion elevation={2}>
+                        <AccordionSummary expandIcon={<ExpandMore />} sx={{ flexDirection: 'row-reverse' }}>
+                            <Typography variant="h5">Legacy in-sample metrics</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Alert severity="warning" sx={{ mb: 2 }}>
+                                These correlations were computed on the same items the formulas were fitted on, with no held-out split. They
+                                describe fit, not generalization, and are shown only for collections fitted before held-out evaluation
+                                existed. Re-run the collection to obtain held-out evidence.
+                            </Alert>
+                            <Grid container spacing={2}>
+                                {allModels.map((m) => (
+                                    <Grid item xs={12} sm={6} md={3} key={m.key}>
+                                        <ModelMetricColumn
+                                            isLoading={isLoading}
+                                            modelMetrics={m.data}
+                                            modelLabel={m.label}
+                                            isBest={false}
+                                        />
+                                    </Grid>
+                                ))}
+                            </Grid>
+                        </AccordionDetails>
+                    </Accordion>
                 </Grid>
-            ))}
+            )}
             {hasFeatureImportance && (
                 <Grid item xs={12}>
                     <Accordion elevation={2}>
@@ -344,6 +526,20 @@ const RiskCollectionPage = () => {
     const [featureLabels, setFeatureLabels] = useState({});
     const [compareOpen, setCompareOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [candidateData, setCandidateData] = useState(null);
+
+    // Structured candidate records — authoritative, unlike the deprecated
+    // `formula_*` columns still present on the collection payload.
+    const loadCandidates = React.useCallback(() => {
+        authAxios
+            .get(`http://localhost:5000/api/v1/risk_collections/${id}/candidates`)
+            .then((r) => setCandidateData(r.data?.candidates?.length ? r.data : null))
+            .catch(() => setCandidateData(null));
+    }, [id]);
+
+    useEffect(() => {
+        loadCandidates();
+    }, [loadCandidates]);
 
     useEffect(() => {
         authAxios
@@ -410,6 +606,7 @@ const RiskCollectionPage = () => {
                     setCollection(r.data.result);
                     setIsLoading(false);
                 });
+                loadCandidates();
             })
             .catch((e) =>
                 enqueueSnackbar(e?.response?.data?.error || 'Failed', {
@@ -438,10 +635,19 @@ const RiskCollectionPage = () => {
                     <Typography variant="h5" component="span">
                         Collection #{id}
                     </Typography>
-                    {collection?.formula && (
-                        <Typography variant="subtitle2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.78rem' }}>
-                            {collection.formula}
-                        </Typography>
+                    {collection?.final_formula && (
+                        <>
+                            <Typography variant="subtitle2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.78rem' }}>
+                                {collection.final_formula}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                {collection.final_operational_candidate}
+                                {collection.final_target_type
+                                    ? ` · ${TARGET_LABELS[collection.final_target_type] || collection.final_target_type}`
+                                    : ''}
+                                {collection.final_normalization_status ? ` · ${collection.final_normalization_status}` : ''}
+                            </Typography>
+                        </>
                     )}
                 </>
             }
@@ -467,56 +673,19 @@ const RiskCollectionPage = () => {
             {isLoading && <LinearProgress />}
             {!isLoading && (
                 <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                        <RiskCollectionStatsSection
-                            isLoading={isLoading}
-                            metrics={collection?.metrics}
-                            bestModel={collection?.best_model}
-                            featureLabels={featureLabels}
-                        />
-                    </Grid>
-                    {collection?.formula && (
+                    {candidateData && (
                         <Grid item xs={12}>
-                            <Accordion elevation={2}>
-                                <AccordionSummary expandIcon={<ExpandMore />} sx={{ flexDirection: 'row-reverse' }}>
-                                    <Typography variant="h5">Learned Formulas</Typography>
-                                </AccordionSummary>
-                                <AccordionDetails>
-                                    <FeatureLegend features={features} />
-                                    <Grid container spacing={1}>
-                                        {[
-                                            { key: 'linear_regression', label: 'Linear Regression', value: collection.formula },
-                                            { key: 'lasso', label: 'Lasso', value: collection.formula_lasso },
-                                            { key: 'ridge', label: 'Ridge', value: collection.formula_ridge },
-                                            { key: 'elasticnet', label: 'Elastic Net', value: collection.formula_elasticnet },
-                                            { key: 'polynomial', label: 'Polynomial (deg 2)', value: collection.formula_poly },
-                                            { key: 'linear_svm', label: 'Linear SVM', value: collection.formula_svm },
-                                            { key: 'pysr', label: 'Symbolic Regression', value: collection.formula_pysr }
-                                        ]
-                                            .filter((f) => f.value)
-                                            .map((f) => (
-                                                <Grid item xs={12} key={f.key}>
-                                                    <Stack direction="row" alignItems="flex-start" spacing={1}>
-                                                        <Typography
-                                                            variant="caption"
-                                                            sx={{
-                                                                minWidth: 140,
-                                                                pt: 0.25,
-                                                                fontWeight: collection.best_model === f.key ? 700 : 400
-                                                            }}
-                                                        >
-                                                            {f.label}
-                                                            {collection.best_model === f.key ? ' ★' : ''}
-                                                        </Typography>
-                                                        <FormulaWithTooltips formula={f.value} featureLabels={featureLabels} />
-                                                    </Stack>
-                                                </Grid>
-                                            ))}
-                                    </Grid>
-                                </AccordionDetails>
-                            </Accordion>
+                            <SelectionSummary data={candidateData} />
+                            <Typography variant="h5" gutterBottom>
+                                Candidates
+                            </Typography>
+                            <FeatureLegend features={features} />
+                            <CandidateTable data={candidateData} featureLabels={featureLabels} />
                         </Grid>
                     )}
+                    <Grid item xs={12}>
+                        <RiskCollectionStatsSection isLoading={isLoading} metrics={collection?.metrics} featureLabels={featureLabels} />
+                    </Grid>
                     <Grid item xs={12}>
                         <Typography variant="h5" gutterBottom>
                             Ranking

@@ -74,11 +74,18 @@ const RiskCollectionClassificationTable = ({ collectionId, refreshKey = 0 }) => 
                 Cell: ({ cell }) => (cell.getValue() === false ? 'Node A' : cell.getValue() === true ? 'Node B' : '—')
             },
             {
-                id: 'is_conflicting',
-                accessorKey: 'is_conflicting',
-                header: 'Conflicting?',
+                id: 'displayed_first_node_id',
+                accessorKey: 'displayed_first_node_id',
+                header: 'Shown first',
                 ...alignCenter,
-                Cell: ({ cell }) => (cell.getValue() === true ? 'Yes' : 'No')
+                // Which node the expert actually saw on the left. NULL means the
+                // row predates presentation randomization, when node A was
+                // always shown first.
+                Cell: ({ cell, row }) => {
+                    const shown = cell.getValue();
+                    if (shown == null) return 'Node A (legacy)';
+                    return shown === row.original.node_id_1 ? 'Node A' : 'Node B';
+                }
             },
             {
                 id: 'updated_at',
