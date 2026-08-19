@@ -9,6 +9,7 @@ import PublicIcon from '@mui/icons-material/Public';
 import GridOnIcon from '@mui/icons-material/GridOn';
 import ViewInArIcon from '@mui/icons-material/ViewInAr';
 import MainCard from 'ui-component/cards/MainCard';
+import { capNodes, extent, padDomain } from 'ui-component/viae-map/scale/budget';
 import authAxios from 'utils/axios';
 import 'leaflet/dist/leaflet.css';
 
@@ -27,37 +28,10 @@ const DEFAULT_NODE_LIMIT = 2000;
 const hasGeoCoords = (n) => Number.isFinite(n?.lat) && Number.isFinite(n?.lng);
 const hasPlanarCoords = (n) => Number.isFinite(n?.x) && Number.isFinite(n?.y);
 
-// Min/max without spreading the array into Math.min/Math.max -- that blows the
-// argument limit (and the stack) somewhere around 10^5 elements.
-function extent(values) {
-    let min = Infinity;
-    let max = -Infinity;
-    for (let i = 0; i < values.length; i += 1) {
-        const v = values[i];
-        if (v < min) min = v;
-        if (v > max) max = v;
-    }
-    return min <= max ? [min, max] : [0, 1];
-}
-
-// Pad a degenerate domain so d3 doesn't collapse every point onto one pixel.
-function padDomain([min, max]) {
-    return min === max ? [min - 1, max + 1] : [min, max];
-}
-
-// Keep every depot, then spread the remaining budget evenly over the customers
-// (deterministic, so the picture is stable across re-renders).
-function capNodes(nodes, max) {
-    if (nodes.length <= max) return nodes;
-    const depots = nodes.filter((n) => n.isDepot);
-    if (depots.length >= max) return depots.slice(0, max);
-    const rest = nodes.filter((n) => !n.isDepot);
-    const room = max - depots.length;
-    const step = rest.length / room;
-    const sampled = new Array(room);
-    for (let i = 0; i < room; i += 1) sampled[i] = rest[Math.floor(i * step)];
-    return depots.concat(sampled);
-}
+// extent / padDomain / capNodes moved verbatim to the shared visualization
+// module so every visualizer gets the same render-budget behaviour -- they
+// were the only scale-aware code in the frontend and were private to this
+// widget. See src/ui-component/viae-map/scale/budget.js.
 
 function FitBounds({ nodes }) {
     const map = useMap();
