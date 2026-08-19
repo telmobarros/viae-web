@@ -1,10 +1,13 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
 
 // material-ui
 import { styled, useTheme } from '@mui/material/styles';
 import {
     Avatar,
     Card,
+    CardActionArea,
     CardContent,
     Grid,
     LinearProgress,
@@ -17,7 +20,12 @@ import {
 } from '@mui/material';
 
 // assets
-import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
+import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
+
+// project imports
+import authAxios from 'utils/axios';
+
+const STATUS_URL = 'http://localhost:5000/api/v1/solver/explorer/status';
 
 // styles
 const BorderLinearProgress = styled(LinearProgress)(({ theme }) => ({
@@ -49,9 +57,9 @@ const CardStyle = styled(Card)(({ theme }) => ({
     }
 }));
 
-// ==============================|| PROGRESS BAR WITH LABEL ||============================== //
+// ==============================|| STATUS BAR WITH LABEL ||============================== //
 
-function LinearProgressWithLabel({ value, ...others }) {
+function ExplorationStatusRow({ running }) {
     const theme = useTheme();
 
     return (
@@ -60,64 +68,105 @@ function LinearProgressWithLabel({ value, ...others }) {
                 <Grid container justifyContent="space-between">
                     <Grid item>
                         <Typography variant="h6" sx={{ color: theme.palette.primary[800] }}>
-                            Progress
+                            Status
                         </Typography>
                     </Grid>
                     <Grid item>
-                        <Typography variant="h6" color="inherit">{`${Math.round(value)}%`}</Typography>
+                        <Typography variant="h6" color="inherit">
+                            {running ? 'Running' : 'Idle'}
+                        </Typography>
                     </Grid>
                 </Grid>
             </Grid>
             <Grid item>
-                <BorderLinearProgress variant="determinate" value={value} {...others} />
+                {running ? <BorderLinearProgress variant="indeterminate" /> : <BorderLinearProgress variant="determinate" value={0} />}
             </Grid>
         </Grid>
     );
 }
 
-LinearProgressWithLabel.propTypes = {
-    value: PropTypes.number
+ExplorationStatusRow.propTypes = {
+    running: PropTypes.bool
 };
 
 // ==============================|| SIDEBAR MENU Card ||============================== //
 
 const MenuCard = () => {
     const theme = useTheme();
+    const navigate = useNavigate();
+
+    const [status, setStatus] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
+    const pollRef = useRef();
+
+    const fetchStatus = useCallback(async () => {
+        try {
+            const res = await authAxios.get(STATUS_URL);
+            setStatus(res.data);
+            setError(false);
+        } catch (e) {
+            setError(true);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchStatus();
+    }, [fetchStatus]);
+
+    useEffect(() => {
+        pollRef.current = setInterval(fetchStatus, status?.running ? 10000 : 30000);
+        return () => clearInterval(pollRef.current);
+    }, [status?.running, fetchStatus]);
+
+    const running = Boolean(status?.running);
+    const workers = status?.max_workers ?? 0;
+    const completed = status?.coverage?.total_completed ?? 0;
+
+    let secondaryText;
+    if (loading) secondaryText = 'Checking status…';
+    else if (error) secondaryText = 'Status unavailable';
+    else if (running) secondaryText = `${workers} worker${workers === 1 ? '' : 's'} active`;
+    else secondaryText = `${completed} run${completed === 1 ? '' : 's'} completed`;
 
     return (
         <CardStyle>
-            <CardContent sx={{ p: 2 }}>
-                <List sx={{ p: 0, m: 0 }}>
-                    <ListItem alignItems="flex-start" disableGutters sx={{ p: 0 }}>
-                        <ListItemAvatar sx={{ mt: 0 }}>
-                            <Avatar
-                                variant="rounded"
-                                sx={{
-                                    ...theme.typography.commonAvatar,
-                                    ...theme.typography.largeAvatar,
-                                    color: theme.palette.primary.main,
-                                    border: 'none',
-                                    borderColor: theme.palette.primary.main,
-                                    background: '#fff',
-                                    marginRight: '12px'
-                                }}
-                            >
-                                <TableChartOutlinedIcon fontSize="inherit" />
-                            </Avatar>
-                        </ListItemAvatar>
-                        <ListItemText
-                            sx={{ mt: 0 }}
-                            primary={
-                                <Typography variant="subtitle1" sx={{ color: theme.palette.primary[800] }}>
-                                    Get Extra Space
-                                </Typography>
-                            }
-                            secondary={<Typography variant="caption"> 28/23 GB</Typography>}
-                        />
-                    </ListItem>
-                </List>
-                <LinearProgressWithLabel value={80} />
-            </CardContent>
+            <CardActionArea onClick={() => navigate('/admin/exploration')}>
+                <CardContent sx={{ p: 2 }}>
+                    <List sx={{ p: 0, m: 0 }}>
+                        <ListItem alignItems="flex-start" disableGutters sx={{ p: 0 }}>
+                            <ListItemAvatar sx={{ mt: 0 }}>
+                                <Avatar
+                                    variant="rounded"
+                                    sx={{
+                                        ...theme.typography.commonAvatar,
+                                        ...theme.typography.largeAvatar,
+                                        color: theme.palette.primary.main,
+                                        border: 'none',
+                                        borderColor: theme.palette.primary.main,
+                                        background: '#fff',
+                                        marginRight: '12px'
+                                    }}
+                                >
+                                    <ScienceOutlinedIcon fontSize="inherit" />
+                                </Avatar>
+                            </ListItemAvatar>
+                            <ListItemText
+                                sx={{ mt: 0 }}
+                                primary={
+                                    <Typography variant="subtitle1" sx={{ color: theme.palette.primary[800] }}>
+                                        Exploration
+                                    </Typography>
+                                }
+                                secondary={<Typography variant="caption">{secondaryText}</Typography>}
+                            />
+                        </ListItem>
+                    </List>
+                    <ExplorationStatusRow running={running} />
+                </CardContent>
+            </CardActionArea>
         </CardStyle>
     );
 };

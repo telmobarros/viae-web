@@ -25,7 +25,7 @@ import {
     Tooltip,
     Typography
 } from '@mui/material';
-import { Add } from '@mui/icons-material';
+import { Add, Download } from '@mui/icons-material';
 import {
     ArrayInput,
     BooleanField,
@@ -39,12 +39,15 @@ import {
     FilterButton,
     List,
     SelectColumnsButton,
+    SelectInput,
     setSubmissionErrors,
     SimpleForm,
     SimpleFormIterator,
     TextField,
     TextInput,
-    TopToolbar
+    TopToolbar,
+    useNotify,
+    useRecordContext
 } from 'react-admin';
 
 import { MaterialReactTable, useMaterialReactTable } from 'material-react-table';
@@ -794,18 +797,71 @@ export const DatasetList = () => (
     </List>
 );
 
+/**
+ * A Dataset may legitimately have no bibliographic reference —
+ * `Dataset.reference_id` is nullable, and plenty of datasets are not
+ * "proposed in" any publication.
+ *
+ * The API's schema is auto-generated from the model, so the nested
+ * `reference` object is itself optional, but *its* fields
+ * (title/authors/year/reference) are all NOT NULL on `Reference` and so come
+ * back as `required=True`. The upshot: submitting the form with the
+ * reference boxes left blank still sends a `reference` object (with empty
+ * strings), which then fails validation and demands every reference field —
+ * even though no reference was wanted.
+ *
+ * So drop the nested object entirely when the user left it empty. A
+ * partially-filled reference is deliberately left alone: that really is
+ * invalid, and the API should say so.
+ */
+const REFERENCE_FIELDS = ['authors', 'title', 'year', 'reference'];
+
+/**
+ * `Dataset.source` and `Dataset.file_format` are enum columns, so free text
+ * just produces a server-side "Must be one of: ..." rejection. These are the
+ * enum *values* the API accepts — note they are not the same as the Python
+ * member names (`VRP_REP` is the name, `VRP-REP` is the value the schema
+ * validates against), so the ids below must stay as the values.
+ */
+const sourceChoices = [
+    { id: 'VRP-REP', name: 'VRP-REP' },
+    { id: 'OTHER', name: 'Other' }
+];
+
+const fileFormatChoices = [
+    { id: 'VRP-REP', name: 'VRP-REP' },
+    { id: 'NEUMANN', name: 'Neumann' },
+    { id: 'TSPLIB', name: 'TSPLIB' },
+    { id: 'GVRP_1FILE', name: 'G-VRP (single file)' },
+    { id: 'GVRP_3FILE', name: 'G-VRP (three files)' },
+    { id: 'GOEKE', name: 'Goeke' },
+    { id: 'OTHER', name: 'Other' }
+];
+
+const dropEmptyReference = (data) => {
+    const reference = data?.reference;
+    if (!reference) return data;
+    const isBlank = REFERENCE_FIELDS.every((field) => {
+        const value = reference[field];
+        return value === undefined || value === null || String(value).trim() === '';
+    });
+    if (!isBlank) return data;
+    const { reference: _omitted, ...rest } = data;
+    return rest;
+};
+
 export const DatasetCreate = () => (
-    <Create>
+    <Create transform={dropEmptyReference}>
         <SimpleForm>
             <TextInput source="sid" />
             <TextInput source="name" />
             <TextInput source="author" />
-            <TextInput source="source" />
+            <SelectInput source="source" choices={sourceChoices} defaultValue="OTHER" />
             <TextInput source="reference.authors" />
             <TextInput source="reference.title" />
             <TextInput source="reference.year" />
             <TextInput source="reference.reference" />
-            <TextInput source="file_format" />
+            <SelectInput source="file_format" choices={fileFormatChoices} />
             <ArrayInput source="instances">
                 <SimpleFormIterator inline>
                     <TextInput source="name" />
@@ -819,18 +875,50 @@ export const DatasetCreate = () => (
     </Create>
 );
 
+const DatasetEditActions = () => {
+    const record = useRecordContext();
+    const notify = useNotify();
+    const [exporting, setExporting] = useState(false);
+
+    if (!record) return null;
+
+    const handleExportZip = () => {
+        setExporting(true);
+        authAxios
+            .get(`http://localhost:5000/api/v1/datasets/${record.id}/export_collections_zip`, { responseType: 'blob' })
+            .then((response) => {
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${record.name}_collections.zip`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+            })
+            .catch(() => notify('Export failed', { type: 'error' }))
+            .finally(() => setExporting(false));
+    };
+
+    return (
+        <TopToolbar>
+            <Button startIcon={<Download />} onClick={handleExportZip} disabled={exporting}>
+                Download All Collections (ZIP)
+            </Button>
+        </TopToolbar>
+    );
+};
+
 export const DatasetEdit = () => (
-    <Edit>
+    <Edit actions={<DatasetEditActions />} transform={dropEmptyReference}>
         <SimpleForm>
             <TextInput source="sid" />
             <TextInput source="name" />
             <TextInput source="author" />
-            <TextInput source="source" />
+            <SelectInput source="source" choices={sourceChoices} />
             <TextInput source="reference.authors" />
             <TextInput source="reference.title" />
             <TextInput source="reference.year" />
             <TextInput source="reference.reference" />
-            <TextInput source="file_format" />
+            <SelectInput source="file_format" choices={fileFormatChoices} />
             <ArrayInput source="instances">
                 <SimpleFormIterator inline>
                     <TextField source="id" />

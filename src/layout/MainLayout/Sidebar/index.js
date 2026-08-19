@@ -12,6 +12,7 @@ import { BrowserView, MobileView } from 'react-device-detect';
 import MenuList from './MenuList';
 import LogoSection from '../LogoSection';
 import MenuCard from './MenuCard';
+import LiveStatusCard from './LiveStatusCard';
 import { drawerWidth } from 'store/constant';
 
 // ==============================|| SIDEBAR DRAWER ||============================== //
@@ -38,12 +39,14 @@ const Sidebar = ({ drawerOpen, drawerToggle, window }) => {
                 >
                     <MenuList />
                     <MenuCard />
+                    <LiveStatusCard />
                 </PerfectScrollbar>
             </BrowserView>
             <MobileView>
                 <Box sx={{ px: 2 }}>
                     <MenuList />
                     <MenuCard />
+                    <LiveStatusCard />
                 </Box>
             </MobileView>
         </>

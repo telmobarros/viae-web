@@ -16,7 +16,8 @@ const driverChoices = [
     { id: 'postgresql', name: 'PostgreSQL' },
     { id: 'mysql', name: 'MySQL' },
     { id: 'sqlite', name: 'SQLite' },
-    { id: 'mssql', name: 'SQL Server' }
+    { id: 'mssql', name: 'SQL Server' },
+    { id: 'oracle', name: 'Oracle' }
 ];
 
 export const DataSourceList = () => (
@@ -34,7 +35,23 @@ export const DataSourceList = () => (
     </List>
 );
 
-const DataSourceForm = () => (
+/**
+ * DS8 (§19): credentials are write-only.
+ *
+ * The API deliberately no longer returns `user`/`password` in list/show
+ * responses, so these inputs always start empty — including when editing an
+ * existing source. That is the fix for a real bug, not a cosmetic choice:
+ * the API used to return the stored Fernet ciphertext, this form bound it
+ * into the password input, and saving sent it back to a hook that encrypted
+ * it a second time. `decrypt_data()` then yielded the ciphertext instead of
+ * the password, so every later connection for that source failed.
+ *
+ * Leaving a credential box empty on edit means "keep the stored one"
+ * (enforced server-side in utils/security.py:apply_credential_update).
+ */
+const CREDENTIAL_HELP = 'Leave blank to keep the stored value.';
+
+const DataSourceForm = ({ isEdit = false }) => (
     <SimpleForm>
         <ReferenceInput source="dataset_instance_id" reference="dataset_instances" required label="Dataset Instance">
             <SelectInput optionText="name" />
@@ -43,8 +60,8 @@ const DataSourceForm = () => (
         <TextInput source="host" />
         <NumberInput source="port" />
         <TextInput source="database" required />
-        <TextInput source="user" />
-        <TextInput source="password" type="password" />
+        <TextInput source="user" autoComplete="off" helperText={isEdit ? CREDENTIAL_HELP : undefined} />
+        <TextInput source="password" type="password" autoComplete="new-password" helperText={isEdit ? CREDENTIAL_HELP : undefined} />
     </SimpleForm>
 );
 
@@ -56,6 +73,6 @@ export const DataSourceCreate = () => (
 
 export const DataSourceEdit = () => (
     <Edit>
-        <DataSourceForm />
+        <DataSourceForm isEdit />
     </Edit>
 );

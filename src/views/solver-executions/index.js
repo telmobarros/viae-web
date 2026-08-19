@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useSelector } from 'react-redux';
 import {
+    Alert,
     Box,
     Button,
     Chip,
@@ -24,6 +25,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { DataGrid } from '@mui/x-data-grid';
 
 import MainCard from 'ui-component/cards/MainCard';
+import DatasetInstanceLink from 'ui-component/DatasetInstanceLink';
 import authAxios from 'utils/axios';
 
 const ConfigTooltip = ({ configuration }) => {
@@ -107,13 +109,17 @@ const SolverExecutionsPage = () => {
                 const list = res?.data?.result?.problem_instances || [];
                 setProblemInstances(list);
                 setProblemInstanceFilter((prev) => {
-                    if (prev && prev !== 'all' && list.find((pi) => pi.id === prev)) return prev;
-                    return list.length ? list[0].id : '';
+                    if (prev === 'all') return prev; // an explicit choice survives an instance switch
+                    if (prev && list.find((pi) => pi.id === prev)) return prev;
+                    // A dataset instance with no problem instances used to land
+                    // on '' -- a value no menu item carries, which left the
+                    // Select stuck and unchangeable. Fall back to 'all' instead.
+                    return list.length ? list[0].id : 'all';
                 });
             })
             .catch(() => {
                 setProblemInstances([]);
-                setProblemInstanceFilter('');
+                setProblemInstanceFilter('all');
             })
             .finally(() => setLoadingInstances(false));
     }, [instance]);
@@ -184,6 +190,7 @@ const SolverExecutionsPage = () => {
                 configuration: e.configuration || null,
                 problemInstanceName: e.problemInstance?.name || '—',
                 datasetInstanceName: e.problemInstance?.datasetInstance?.name || '—',
+                datasetInstance: e.problemInstance?.datasetInstance || null,
                 datasetName: e.problemInstance?.datasetInstance?.dataset?.name || '—',
                 executionTime: e.executionTime,
                 startTime: e.startTime,
@@ -240,7 +247,14 @@ const SolverExecutionsPage = () => {
                 renderCell: (params) => <ConfigTooltip configuration={params.value} />
             },
             { field: 'datasetName', headerName: 'Dataset', width: 110 },
-            { field: 'datasetInstanceName', headerName: 'Dataset Instance', width: 130 },
+            {
+                field: 'datasetInstanceName',
+                headerName: 'Dataset Instance',
+                width: 150,
+                // Under "All problem instances" these rows can belong to other
+                // dataset instances -- the link switches the app-wide selection.
+                renderCell: (params) => <DatasetInstanceLink instance={params.row.datasetInstance} label={params.value} />
+            },
             { field: 'problemInstanceName', headerName: 'Problem Instance', width: 100 },
             {
                 field: 'executionTime',
@@ -347,16 +361,19 @@ const SolverExecutionsPage = () => {
                             <Select
                                 labelId="problem-instance-filter-label"
                                 label="Problem Instance"
-                                value={problemInstanceFilter || ''}
+                                value={problemInstanceFilter || 'all'}
                                 onChange={(e) => setProblemInstanceFilter(e.target.value)}
-                                disabled={loadingInstances || !problemInstances.length}
+                                // Only the in-flight fetch disables this. Having
+                                // no problem instances is exactly when the user
+                                // needs the unscoped option to still be reachable.
+                                disabled={loadingInstances}
                             >
+                                <MenuItem value="all">All problem instances (any dataset instance)</MenuItem>
                                 {problemInstances.map((pi) => (
                                     <MenuItem value={pi.id} key={pi.id}>
                                         {pi.name || `Instance ${pi.id}`}
                                     </MenuItem>
                                 ))}
-                                <MenuItem value="all">All problem instances</MenuItem>
                             </Select>
                         </FormControl>
                         <Button
@@ -372,6 +389,19 @@ const SolverExecutionsPage = () => {
                     </Stack>
                 </Grid>
                 <Grid item xs={12}>
+                    {!loadingInstances && !problemInstances.length && (
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                            <strong>{instance.name}</strong> has no problem instances defined, so it has no solver executions of its own.
+                            Define one from the Problem Instances page, or keep the unscoped filter above to browse executions from other
+                            dataset instances.
+                        </Alert>
+                    )}
+                    {problemInstanceFilter === 'all' && problemInstances.length > 0 && (
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                            Unscoped view: these rows are not limited to the selected dataset instance. Click a name in the Dataset Instance
+                            column to switch to the instance a row belongs to.
+                        </Alert>
+                    )}
                     {error && (
                         <Box mb={2}>
                             <Typography color="error">{error}</Typography>

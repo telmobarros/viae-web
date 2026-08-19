@@ -1,4 +1,5 @@
 import { lazy } from 'react';
+import { Navigate } from 'react-router-dom';
 
 // project imports
 import MainLayout from 'layout/MainLayout';
@@ -9,6 +10,7 @@ import Loadable from 'ui-component/Loadable';
 const DashboardDefault = Loadable(lazy(() => import('views/dashboard/Default')));
 
 // instance related routing
+const ProblemInstances = Loadable(lazy(() => import('views/problem-instances')));
 const ObjectiveFunction = Loadable(lazy(() => import('views/objective-function')));
 const OFComparisonCollectionPage = Loadable(lazy(() => import('views/of-comparison-collections/id')));
 const OFComparisonPage = Loadable(lazy(() => import('views/of-comparisons/id')));
@@ -22,15 +24,6 @@ const SolverExecutionCharts = Loadable(lazy(() => import('views/solver-execution
 const LiveRoutes = Loadable(lazy(() => import('views/live/LiveRoutes')));
 const LiveSolutions = Loadable(lazy(() => import('views/live/LiveSolutions')));
 
-// utilities routing
-const UtilsTypography = Loadable(lazy(() => import('views/utilities/Typography')));
-const UtilsColor = Loadable(lazy(() => import('views/utilities/Color')));
-const UtilsShadow = Loadable(lazy(() => import('views/utilities/Shadow')));
-const UtilsMaterialIcons = Loadable(lazy(() => import('views/utilities/MaterialIcons')));
-const UtilsTablerIcons = Loadable(lazy(() => import('views/utilities/TablerIcons')));
-
-// sample page routing
-const SamplePage = Loadable(lazy(() => import('views/sample-page')));
 const Depots = Loadable(lazy(() => import('views/depots')));
 const RiskEditor = Loadable(lazy(() => import('views/risk/Edit')));
 const RiskModelsPage = Loadable(lazy(() => import('views/risk')));
@@ -39,6 +32,10 @@ const RiskModelVisualization = Loadable(lazy(() => import('views/risk/visualizat
 const RiskCollectionPage = Loadable(lazy(() => import('views/risk/collections/id')));
 const IndicatorsPage = Loadable(lazy(() => import('views/risk/indicators')));
 const ExplorationPage = Loadable(lazy(() => import('views/admin/Exploration')));
+// The DataSource integration workflow now lives in the admin back-office
+// (views/admin/index.js registers it as a react-admin CustomRoute at
+// /admin/data-sources, with its own dataset-instance picker since the admin
+// layout has no header instance-selector).
 
 // ==============================|| MAIN ROUTING ||============================== //
 
@@ -62,6 +59,10 @@ const MainRoutes = {
                     element: <DashboardDefault />
                 }
             ]
+        },
+        {
+            path: 'problem-instances',
+            element: <ProblemInstances />
         },
         {
             path: 'objective-function',
@@ -104,55 +105,6 @@ const MainRoutes = {
             element: <SolutionVisualizerPage />
         },
         {
-            path: 'utils',
-            children: [
-                {
-                    path: 'util-typography',
-                    element: <UtilsTypography />
-                }
-            ]
-        },
-        {
-            path: 'utils',
-            children: [
-                {
-                    path: 'util-color',
-                    element: <UtilsColor />
-                }
-            ]
-        },
-        {
-            path: 'utils',
-            children: [
-                {
-                    path: 'util-shadow',
-                    element: <UtilsShadow />
-                }
-            ]
-        },
-        {
-            path: 'icons',
-            children: [
-                {
-                    path: 'tabler-icons',
-                    element: <UtilsTablerIcons />
-                }
-            ]
-        },
-        {
-            path: 'icons',
-            children: [
-                {
-                    path: 'material-icons',
-                    element: <UtilsMaterialIcons />
-                }
-            ]
-        },
-        {
-            path: 'sample-page',
-            element: <SamplePage />
-        },
-        {
             path: 'depots',
             element: <Depots />
         },
@@ -183,6 +135,14 @@ const MainRoutes = {
         {
             path: 'admin/exploration',
             element: <ExplorationPage />
+        },
+        {
+            // The page moved into the admin back-office. There is no catch-all
+            // route in this app, so an unmatched path renders nothing at all —
+            // leaving the old URL undefined would just show a blank screen to
+            // anyone with a bookmark. Redirect instead.
+            path: 'data-sources',
+            element: <Navigate to="/admin/data-sources" replace />
         }
     ]
 };

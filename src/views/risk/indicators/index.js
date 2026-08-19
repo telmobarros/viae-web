@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import {
+    Alert,
     Box,
     Button,
     Chip,
@@ -26,6 +27,8 @@ import { useSnackbar } from 'notistack';
 import MainCard from 'ui-component/cards/MainCard';
 import authAxios from 'utils/axios';
 
+const API_BASE = 'http://localhost:5000/api/v1';
+
 const stateColor = { PENDING: 'default', FETCHING: 'info', READY: 'success', ERROR: 'error' };
 
 const defaultForm = {
@@ -37,16 +40,60 @@ const defaultForm = {
     routine_minutes: 0
 };
 
-const IndicatorFormDialog = ({ open, onClose, onSave, initial, dbSchema }) => {
+const IndicatorFormDialog = ({ open, onClose, onSave, initial, dbSchema, instanceId }) => {
     const [form, setForm] = useState(initial || defaultForm);
+    const [nodeMappings, setNodeMappings] = useState([]);
+    const [externalColumns, setExternalColumns] = useState([]);
 
     useEffect(() => {
         setForm(initial || defaultForm);
     }, [initial, open]);
 
+    // DS10: the Node-targeting DataSourceModels available for this instance.
+    // Fetched through the generic data_source_mappings API and filtered on the
+    // canonical entity, so nothing organisation-specific appears here.
+    useEffect(() => {
+        if (!open || !instanceId) return;
+        authAxios
+            .get(`${API_BASE}/data_source_mappings/`, {
+                params: {
+                    q: JSON.stringify({
+                        filters: [{ col: 'data_source_model', opr: 'eq', value: 'Node' }]
+                    })
+                }
+            })
+            .then((response) => setNodeMappings(response.data?.result || []))
+            .catch(() => setNodeMappings([]));
+    }, [open, instanceId]);
+
+    // Columns of the selected mapping's object, via the generic DS3
+    // introspection endpoint.
+    useEffect(() => {
+        const mappingId = form.source_config?.data_source_model_id;
+        if (form.source_type !== 'data_source_column' || !mappingId) {
+            setExternalColumns([]);
+            return;
+        }
+        const mapping = (nodeMappings || []).find((m) => m.id === mappingId);
+        if (!mapping) return;
+        authAxios
+            .get(`${API_BASE}/data_sources/${mapping.data_source_id}/columns`, {
+                params: { table: mapping.object_name, schema: mapping.schema_name || undefined }
+            })
+            .then((response) => setExternalColumns(response.data?.result?.columns || []))
+            .catch(() => setExternalColumns([]));
+    }, [form.source_type, form.source_config?.data_source_model_id, nodeMappings]);
+
     const handleSourceTypeChange = (e) => {
         const t = e.target.value;
-        const emptyConfig = t === 'table_column' ? { table: '', column: '' } : t === 'sql_query' ? { query: '' } : { filename: '' };
+        const emptyConfig =
+            t === 'table_column'
+                ? { table: '', column: '' }
+                : t === 'sql_query'
+                  ? { query: '' }
+                  : t === 'data_source_column'
+                    ? { data_source_model_id: '', external_column: '' }
+                    : { filename: '' };
         setForm({ ...form, source_type: t, source_config: emptyConfig });
     };
 
@@ -87,8 +134,70 @@ const IndicatorFormDialog = ({ open, onClose, onSave, initial, dbSchema }) => {
                             <MenuItem value="table_column">Table / Column</MenuItem>
                             <MenuItem value="sql_query">SQL Query</MenuItem>
                             <MenuItem value="csv">CSV Upload</MenuItem>
+                            <MenuItem value="data_source_column">External DataSource column</MenuItem>
                         </Select>
                     </FormControl>
+
+                    {/* DS10: values read from an external provider already
+                        configured as a DataSourceModel. The DataSourceModel
+                        supplies the connection, the object and the column
+                        carrying the canonical Node id; only the numeric value
+                        column is chosen here. Deliberately no
+                        DataSourceFieldMapping — an analytical measure is not a
+                        Node column. Both lists come from the generic APIs, so
+                        no organisational table or column name is hard-coded. */}
+                    {form.source_type === 'data_source_column' && (
+                        <>
+                            <FormControl size="small" fullWidth>
+                                <InputLabel>Node data source</InputLabel>
+                                <Select
+                                    value={form.source_config?.data_source_model_id || ''}
+                                    label="Node data source"
+                                    onChange={(e) =>
+                                        setForm({
+                                            ...form,
+                                            source_config: {
+                                                ...form.source_config,
+                                                data_source_model_id: e.target.value,
+                                                external_column: ''
+                                            }
+                                        })
+                                    }
+                                >
+                                    {(nodeMappings || []).map((mapping) => (
+                                        <MenuItem key={mapping.id} value={mapping.id}>
+                                            {mapping.schema_name ? `${mapping.schema_name}.` : ''}
+                                            {mapping.object_name} ({mapping.external_id_column})
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <FormControl size="small" fullWidth disabled={!form.source_config?.data_source_model_id}>
+                                <InputLabel>Value column</InputLabel>
+                                <Select
+                                    value={form.source_config?.external_column || ''}
+                                    label="Value column"
+                                    onChange={(e) =>
+                                        setForm({
+                                            ...form,
+                                            source_config: { ...form.source_config, external_column: e.target.value }
+                                        })
+                                    }
+                                >
+                                    {(externalColumns || []).map((column) => (
+                                        <MenuItem key={column.name} value={column.name}>
+                                            {column.name} ({column.type})
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            {(nodeMappings || []).length === 0 ? (
+                                <Alert severity="info">
+                                    No Node data source is configured for this instance yet. Create one under Data Sources first.
+                                </Alert>
+                            ) : null}
+                        </>
+                    )}
 
                     {form.source_type === 'table_column' && (
                         <>
@@ -319,6 +428,7 @@ const IndicatorsPage = () => {
                 onSave={handleSave}
                 initial={editTarget}
                 dbSchema={dbSchema}
+                instanceId={instance?.id}
             />
         </MainCard>
     );

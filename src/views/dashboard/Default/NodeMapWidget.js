@@ -4,7 +4,7 @@ import DeckGL from '@deck.gl/react';
 import { OrbitView } from '@deck.gl/core';
 import { ScatterplotLayer } from '@deck.gl/layers';
 import * as d3 from 'd3';
-import { Box, Chip, CircularProgress, Skeleton, Stack, Typography } from '@mui/material';
+import { Box, Chip, MenuItem, Select, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
 import PublicIcon from '@mui/icons-material/Public';
 import GridOnIcon from '@mui/icons-material/GridOn';
 import ViewInArIcon from '@mui/icons-material/ViewInAr';
@@ -15,19 +15,61 @@ import 'leaflet/dist/leaflet.css';
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 const MAP_HEIGHT = 400;
 
+// Render budget. One marker per node means a 50k-node instance can freeze or
+// kill the browser tab, so both ends of the wire cap the count: the API caps
+// what it sends (?limit=), and the renderers cap what they draw. The options
+// below are what the user can pick from; the API clamps anything larger.
+const NODE_LIMIT_OPTIONS = [500, 2000, 5000, 10000];
+const DEFAULT_NODE_LIMIT = 2000;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+const hasGeoCoords = (n) => Number.isFinite(n?.lat) && Number.isFinite(n?.lng);
+const hasPlanarCoords = (n) => Number.isFinite(n?.x) && Number.isFinite(n?.y);
+
+// Min/max without spreading the array into Math.min/Math.max -- that blows the
+// argument limit (and the stack) somewhere around 10^5 elements.
+function extent(values) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < values.length; i += 1) {
+        const v = values[i];
+        if (v < min) min = v;
+        if (v > max) max = v;
+    }
+    return min <= max ? [min, max] : [0, 1];
+}
+
+// Pad a degenerate domain so d3 doesn't collapse every point onto one pixel.
+function padDomain([min, max]) {
+    return min === max ? [min - 1, max + 1] : [min, max];
+}
+
+// Keep every depot, then spread the remaining budget evenly over the customers
+// (deterministic, so the picture is stable across re-renders).
+function capNodes(nodes, max) {
+    if (nodes.length <= max) return nodes;
+    const depots = nodes.filter((n) => n.isDepot);
+    if (depots.length >= max) return depots.slice(0, max);
+    const rest = nodes.filter((n) => !n.isDepot);
+    const room = max - depots.length;
+    const step = rest.length / room;
+    const sampled = new Array(room);
+    for (let i = 0; i < room; i += 1) sampled[i] = rest[Math.floor(i * step)];
+    return depots.concat(sampled);
+}
 
 function FitBounds({ nodes }) {
     const map = useMap();
     useEffect(() => {
-        const pts = nodes.filter((n) => n.lat != null && n.lng != null);
-        if (!pts.length) return;
-        const lats = pts.map((n) => n.lat);
-        const lngs = pts.map((n) => n.lng);
+        if (!nodes.length) return;
+        const [minLat, maxLat] = extent(nodes.map((n) => n.lat));
+        const [minLng, maxLng] = extent(nodes.map((n) => n.lng));
+        if (!Number.isFinite(minLat) || !Number.isFinite(minLng)) return;
         map.fitBounds(
             [
-                [Math.min(...lats), Math.min(...lngs)],
-                [Math.max(...lats), Math.max(...lngs)]
+                [minLat, minLng],
+                [maxLat, maxLng]
             ],
             { padding: [30, 30], maxZoom: 14 }
         );
@@ -39,7 +81,15 @@ function FitBounds({ nodes }) {
 
 function GeoNodesMap({ nodes }) {
     return (
-        <MapContainer center={[0, 0]} zoom={2} style={{ height: MAP_HEIGHT, width: '100%', borderRadius: 8 }} zoomControl={false}>
+        // preferCanvas: one <canvas> instead of one SVG <path> per node -- the
+        // difference between "sluggish" and "tab dies" at a few thousand nodes.
+        <MapContainer
+            preferCanvas
+            center={[0, 0]}
+            zoom={2}
+            style={{ height: MAP_HEIGHT, width: '100%', borderRadius: 8 }}
+            zoomControl={false}
+        >
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
             <ZoomControl position="bottomright" />
             <FitBounds nodes={nodes} />
@@ -77,15 +127,13 @@ function Euclidean2DMap({ nodes }) {
         const H = MAP_HEIGHT;
         const pad = 40;
 
-        const xs = nodes.map((n) => n.x);
-        const ys = nodes.map((n) => n.y);
         const xScale = d3
             .scaleLinear()
-            .domain([Math.min(...xs), Math.max(...xs)])
+            .domain(padDomain(extent(nodes.map((n) => n.x))))
             .range([pad, W - pad]);
         const yScale = d3
             .scaleLinear()
-            .domain([Math.min(...ys), Math.max(...ys)])
+            .domain(padDomain(extent(nodes.map((n) => n.y))))
             .range([H - pad, pad]);
 
         const svg = d3.select(svgRef.current).attr('width', W).attr('height', H);
@@ -177,23 +225,20 @@ function Euclidean3DMap({ nodes }) {
         maxZoom: 10
     });
 
-    const { data, scale } = useMemo(() => {
-        if (!nodes.length) return { data: [], scale: 1 };
-        const xs = nodes.map((n) => n.x);
-        const ys = nodes.map((n) => n.y);
-        const zs = nodes.map((n) => n.z ?? 0);
-        const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
-        const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-        const cz = (Math.max(...zs) + Math.min(...zs)) / 2;
-        const spread = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
+    const data = useMemo(() => {
+        if (!nodes.length) return [];
+        const [minX, maxX] = extent(nodes.map((n) => n.x));
+        const [minY, maxY] = extent(nodes.map((n) => n.y));
+        const [minZ, maxZ] = extent(nodes.map((n) => (Number.isFinite(n.z) ? n.z : 0)));
+        const cx = (maxX + minX) / 2;
+        const cy = (maxY + minY) / 2;
+        const cz = (maxZ + minZ) / 2;
+        const spread = Math.max(maxX - minX, maxY - minY, 1);
         const sc = 200 / spread;
-        return {
-            data: nodes.map((n) => ({
-                position: [(n.x - cx) * sc, (n.y - cy) * sc, ((n.z ?? 0) - cz) * sc],
-                color: n.isDepot ? [229, 57, 53, 230] : [25, 118, 210, 180]
-            })),
-            scale: sc
-        };
+        return nodes.map((n) => ({
+            position: [(n.x - cx) * sc, (n.y - cy) * sc, ((Number.isFinite(n.z) ? n.z : 0) - cz) * sc],
+            color: n.isDepot ? [229, 57, 53, 230] : [25, 118, 210, 180]
+        }));
     }, [nodes]);
 
     const layers = [
@@ -231,9 +276,10 @@ function Euclidean3DMap({ nodes }) {
 
 // ── Legend ───────────────────────────────────────────────────────────────────
 
-function Legend({ depotCount, customerCount }) {
+function Legend({ depotCount, customerCount, shownCount, totalCount, skippedNoCoords }) {
+    const isSample = totalCount > shownCount;
     return (
-        <Stack direction="row" spacing={2} alignItems="center">
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
             <Stack direction="row" spacing={0.5} alignItems="center">
                 <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#e53935' }} />
                 <Typography variant="caption">Depots ({depotCount})</Typography>
@@ -242,6 +288,27 @@ function Legend({ depotCount, customerCount }) {
                 <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#1976d2' }} />
                 <Typography variant="caption">Customers ({customerCount})</Typography>
             </Stack>
+            {isSample && (
+                <Tooltip title="Only a sample is drawn so the map stays responsive. Every depot is kept; customers are evenly sampled. Raise the limit above if you need more.">
+                    <Chip
+                        size="small"
+                        variant="outlined"
+                        color="warning"
+                        label={`Showing ${shownCount.toLocaleString()} of ${totalCount.toLocaleString()} nodes`}
+                        sx={{ height: 22, fontSize: '0.7rem' }}
+                    />
+                </Tooltip>
+            )}
+            {skippedNoCoords > 0 && (
+                <Tooltip title="These nodes carry no coordinates in the coordinate system this instance uses, so they cannot be placed on the map.">
+                    <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`${skippedNoCoords.toLocaleString()} without coordinates`}
+                        sx={{ height: 22, fontSize: '0.7rem' }}
+                    />
+                </Tooltip>
+            )}
         </Stack>
     );
 }
@@ -252,29 +319,50 @@ const NodeMapWidget = ({ instance }) => {
     const [nodes, setNodes] = useState([]);
     const [coordMode, setCoordMode] = useState(null);
     const [hasZ, setHasZ] = useState(false);
+    const [totalNodes, setTotalNodes] = useState(0);
+    const [nodeLimit, setNodeLimit] = useState(DEFAULT_NODE_LIMIT);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        if (!instance?.id) return;
+        if (!instance?.id) return undefined;
+        let cancelled = false;
         setLoading(true);
         setError(null);
         authAxios
-            .get(`${API_BASE}/api/v1/dataset_instances/${instance.id}/nodes`)
+            .get(`${API_BASE}/api/v1/dataset_instances/${instance.id}/nodes`, { params: { limit: nodeLimit } })
             .then((res) => {
+                if (cancelled) return;
                 const result = res?.data?.result;
                 if (!result) throw new Error('Empty response');
                 const nodeList = Object.values(result.nodes || {});
                 setNodes(nodeList);
                 setCoordMode(result.coordinates);
                 setHasZ(result.has_z);
+                // Older API builds don't send `total`; fall back to what arrived.
+                setTotalNodes(Number.isFinite(result.total) ? result.total : nodeList.length);
             })
-            .catch((e) => setError(e?.message || 'Failed to load nodes'))
-            .finally(() => setLoading(false));
-    }, [instance?.id]);
+            .catch((e) => {
+                if (!cancelled) setError(e?.message || 'Failed to load nodes');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [instance?.id, nodeLimit]);
 
-    const depots = nodes.filter((n) => n.isDepot);
-    const customers = nodes.filter((n) => !n.isDepot);
+    // Drop anything the active renderer cannot place, then cap what's left.
+    // Without the first step a node missing coordinates reaches Leaflet as
+    // (undefined, undefined) and throws "Invalid LatLng object".
+    const { renderable, skippedNoCoords } = useMemo(() => {
+        const usable = coordMode === 'lat_lng' ? nodes.filter(hasGeoCoords) : nodes.filter(hasPlanarCoords);
+        return { renderable: capNodes(usable, nodeLimit), skippedNoCoords: nodes.length - usable.length };
+    }, [nodes, coordMode, nodeLimit]);
+
+    const depots = renderable.filter((n) => n.isDepot);
+    const customers = renderable.filter((n) => !n.isDepot);
 
     const modeLabel = coordMode === 'lat_lng' ? 'Geographical' : hasZ ? '3D Euclidean' : '2D Euclidean';
     const modeIcon =
@@ -289,16 +377,34 @@ const NodeMapWidget = ({ instance }) => {
     const cardTitle = (
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
             <Typography variant="h4">Node Map</Typography>
-            {coordMode && (
-                <Chip
-                    icon={modeIcon}
-                    label={modeLabel}
+            <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" color="text.secondary">
+                    Max nodes
+                </Typography>
+                <Select
+                    value={nodeLimit}
+                    onChange={(e) => setNodeLimit(Number(e.target.value))}
                     size="small"
                     variant="outlined"
-                    color="primary"
-                    sx={{ height: 24, fontSize: '0.72rem' }}
-                />
-            )}
+                    sx={{ height: 26, fontSize: '0.72rem', '& .MuiSelect-select': { py: 0.25 } }}
+                >
+                    {NODE_LIMIT_OPTIONS.map((opt) => (
+                        <MenuItem key={opt} value={opt} sx={{ fontSize: '0.78rem' }}>
+                            {opt.toLocaleString()}
+                        </MenuItem>
+                    ))}
+                </Select>
+                {coordMode && (
+                    <Chip
+                        icon={modeIcon}
+                        label={modeLabel}
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        sx={{ height: 24, fontSize: '0.72rem' }}
+                    />
+                )}
+            </Stack>
         </Stack>
     );
 
@@ -315,24 +421,32 @@ const NodeMapWidget = ({ instance }) => {
                 </Box>
             );
         }
-        if (!nodes.length) {
+        if (!renderable.length) {
             return (
                 <Box sx={{ height: MAP_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Typography color="text.secondary" variant="body2">
-                        No nodes found for this instance.
+                        {nodes.length ? 'No node in this instance has usable coordinates.' : 'No nodes found for this instance.'}
                     </Typography>
                 </Box>
             );
         }
-        if (coordMode === 'lat_lng') return <GeoNodesMap nodes={nodes} />;
-        if (hasZ) return <Euclidean3DMap nodes={nodes} />;
-        return <Euclidean2DMap nodes={nodes} />;
+        if (coordMode === 'lat_lng') return <GeoNodesMap nodes={renderable} />;
+        if (hasZ) return <Euclidean3DMap nodes={renderable} />;
+        return <Euclidean2DMap nodes={renderable} />;
     };
 
     return (
         <MainCard title={cardTitle} content={false} sx={{ overflow: 'hidden' }}>
             <Box sx={{ px: 2, py: 1.5 }}>
-                {nodes.length > 0 && !loading && <Legend depotCount={depots.length} customerCount={customers.length} />}
+                {renderable.length > 0 && !loading && (
+                    <Legend
+                        depotCount={depots.length}
+                        customerCount={customers.length}
+                        shownCount={renderable.length}
+                        totalCount={Math.max(totalNodes, renderable.length)}
+                        skippedNoCoords={skippedNoCoords}
+                    />
+                )}
             </Box>
             <Box sx={{ px: 2, pb: 2 }}>{renderMap()}</Box>
         </MainCard>

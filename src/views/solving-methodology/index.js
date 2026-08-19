@@ -20,7 +20,9 @@ import {
     IconButton
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import Autocomplete from '@mui/material/Autocomplete';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import { styled } from '@mui/material/styles';
 import authAxios from 'utils/axios';
 import MainCard from 'ui-component/cards/MainCard';
@@ -35,7 +37,7 @@ const OBJECTIVE_STORAGE_KEY = 'objectiveDefinition';
 const SolverConfigurationPage = () => {
     const [solverConfig, setSolverConfig] = useState({
         useClustering: false,
-        clusteringParams: { strategy: '', clusters: 0 },
+        clusteringParams: { strategy: '', clusters: 0, eps: '', minSamples: '' },
         orchestration: { mode: 'sequential', handoff: true, topK: 1 },
         // Reproducibility (UI-only)
         seed: '',
@@ -391,6 +393,43 @@ const SolverConfigurationPage = () => {
         });
     };
 
+    const handleVNSToggle = (category, operator, isSecondary = false) => {
+        if (!operator) return;
+        setSolverConfig((prev) => {
+            const updatedOperators = isSecondary ? { ...prev.secondarySearchOperators } : { ...prev.mainSearchOperators };
+            const opData = updatedOperators[category][operator];
+            if (opData.active) {
+                updatedOperators[category][operator] = { ...opData, active: false, order: null };
+            } else {
+                const maxOrder = Object.values(updatedOperators[category])
+                    .filter((o) => o.active && o.order != null)
+                    .reduce((m, o) => Math.max(m, o.order), -1);
+                updatedOperators[category][operator] = { ...opData, active: true, order: maxOrder + 1 };
+            }
+            return isSecondary
+                ? { ...prev, secondarySearchOperators: updatedOperators }
+                : { ...prev, mainSearchOperators: updatedOperators };
+        });
+    };
+
+    const handleVNSReorder = (result, category, isSecondary = false) => {
+        if (!result.destination) return;
+        setSolverConfig((prev) => {
+            const updatedOperators = isSecondary ? { ...prev.secondarySearchOperators } : { ...prev.mainSearchOperators };
+            const active = Object.entries(updatedOperators[category])
+                .filter(([, cfg]) => cfg.active)
+                .sort(([, a], [, b]) => (a.order ?? Infinity) - (b.order ?? Infinity));
+            const [moved] = active.splice(result.source.index, 1);
+            active.splice(result.destination.index, 0, moved);
+            active.forEach(([name], idx) => {
+                updatedOperators[category][name] = { ...updatedOperators[category][name], order: idx };
+            });
+            return isSecondary
+                ? { ...prev, secondarySearchOperators: updatedOperators }
+                : { ...prev, mainSearchOperators: updatedOperators };
+        });
+    };
+
     const handleAddOperator = (category, operator, isSecondary = false) => {
         if (!operator) return;
         setSolverConfig((prev) => {
@@ -554,6 +593,84 @@ const SolverConfigurationPage = () => {
                         </Grid>
                     </Grid>
                 ))}
+            </>
+        );
+    };
+
+    const renderVNSOperators = (operators, category, isSecondary = false) => {
+        const categoryLabel = category === 'intraRoute' ? 'Intra Route Operators' : 'Inter Route Operators';
+        const activeOps = Object.entries(operators)
+            .filter(([, cfg]) => cfg.active)
+            .sort(([, a], [, b]) => (a.order ?? Infinity) - (b.order ?? Infinity));
+        const inactiveOps = Object.keys(operators).filter((op) => !operators[op].active);
+        const droppableId = `${isSecondary ? 'sec' : 'main'}-${category}`;
+        return (
+            <>
+                <Grid item xs={12}>
+                    <Typography variant="subtitle1" gutterBottom textAlign={'center'}>
+                        {categoryLabel}
+                    </Typography>
+                </Grid>
+                <Grid item xs={12}>
+                    <Autocomplete
+                        size="small"
+                        options={inactiveOps}
+                        value={null}
+                        onChange={(e, value) => handleVNSToggle(category, value, isSecondary)}
+                        renderInput={(params) => <TextField {...params} label="Add operator" placeholder="Type to search..." />}
+                        clearOnBlur
+                        clearOnEscape
+                        disableListWrap
+                    />
+                </Grid>
+                <Grid item xs={12}>
+                    <DragDropContext onDragEnd={(result) => handleVNSReorder(result, category, isSecondary)}>
+                        <Droppable droppableId={droppableId}>
+                            {(provided) => (
+                                <div ref={provided.innerRef} {...provided.droppableProps}>
+                                    {activeOps.map(([name], idx) => (
+                                        <Draggable key={name} draggableId={`${droppableId}-${name}`} index={idx}>
+                                            {(provided) => (
+                                                <Box
+                                                    ref={provided.innerRef}
+                                                    {...provided.draggableProps}
+                                                    sx={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        py: 0.5,
+                                                        px: 1,
+                                                        border: '1px solid',
+                                                        borderColor: 'divider',
+                                                        borderRadius: 1,
+                                                        mb: 0.5,
+                                                        bgcolor: 'background.paper'
+                                                    }}
+                                                >
+                                                    <span {...provided.dragHandleProps}>
+                                                        <DragIndicatorIcon fontSize="small" color="action" />
+                                                    </span>
+                                                    <Typography variant="body2" sx={{ flexGrow: 1, ml: 1 }}>
+                                                        {idx + 1}. {name}
+                                                    </Typography>
+                                                    <Tooltip title="Remove operator">
+                                                        <IconButton
+                                                            size="small"
+                                                            aria-label={`remove-${name}`}
+                                                            onClick={() => handleVNSToggle(category, name, isSecondary)}
+                                                        >
+                                                            <CloseIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                </Box>
+                                            )}
+                                        </Draggable>
+                                    ))}
+                                    {provided.placeholder}
+                                </div>
+                            )}
+                        </Droppable>
+                    </DragDropContext>
+                </Grid>
             </>
         );
     };
@@ -980,14 +1097,47 @@ const SolverConfigurationPage = () => {
                                         ))}
                                     </Select>
                                 </Grid>
-                                <Grid item xs={6}>
-                                    <TextField
-                                        label="Number of Clusters"
-                                        type="number"
-                                        fullWidth
-                                        onChange={(e) => handleClusteringChange('clusters', parseInt(e.target.value) || 0)}
-                                    />
-                                </Grid>
+                                {solverConfig.clusteringParams.strategy === 'DBSCAN' ? (
+                                    <>
+                                        <Grid item xs={3}>
+                                            <TextField
+                                                label="Eps"
+                                                type="number"
+                                                fullWidth
+                                                value={solverConfig.clusteringParams.eps}
+                                                onChange={(e) =>
+                                                    handleClusteringChange('eps', e.target.value === '' ? '' : parseFloat(e.target.value))
+                                                }
+                                                helperText="Neighborhood radius"
+                                            />
+                                        </Grid>
+                                        <Grid item xs={3}>
+                                            <TextField
+                                                label="Min Samples"
+                                                type="number"
+                                                fullWidth
+                                                value={solverConfig.clusteringParams.minSamples}
+                                                onChange={(e) =>
+                                                    handleClusteringChange(
+                                                        'minSamples',
+                                                        e.target.value === '' ? '' : parseInt(e.target.value) || 0
+                                                    )
+                                                }
+                                                helperText="Min points per neighborhood"
+                                            />
+                                        </Grid>
+                                    </>
+                                ) : (
+                                    <Grid item xs={6}>
+                                        <TextField
+                                            label="Number of Clusters"
+                                            type="number"
+                                            fullWidth
+                                            value={solverConfig.clusteringParams.clusters}
+                                            onChange={(e) => handleClusteringChange('clusters', parseInt(e.target.value) || 0)}
+                                        />
+                                    </Grid>
+                                )}
                             </Grid>
                         )}
                     </SubCard>
@@ -1088,9 +1238,13 @@ const SolverConfigurationPage = () => {
                                 <Typography variant="h6">Search Operators</Typography>
                                 <Grid container spacing={2}>
                                     {getAllowedCategories(solverConfig.mainMethodology).includes('intraRoute') &&
-                                        renderSearchOperators(solverConfig.mainSearchOperators.intraRoute, 'intraRoute')}
+                                        (solverConfig.mainMethodology === 'VNS/VND'
+                                            ? renderVNSOperators(solverConfig.mainSearchOperators.intraRoute, 'intraRoute')
+                                            : renderSearchOperators(solverConfig.mainSearchOperators.intraRoute, 'intraRoute'))}
                                     {getAllowedCategories(solverConfig.mainMethodology).includes('interRoute') &&
-                                        renderSearchOperators(solverConfig.mainSearchOperators.interRoute, 'interRoute')}
+                                        (solverConfig.mainMethodology === 'VNS/VND'
+                                            ? renderVNSOperators(solverConfig.mainSearchOperators.interRoute, 'interRoute')
+                                            : renderSearchOperators(solverConfig.mainSearchOperators.interRoute, 'interRoute'))}
                                     {getAllowedCategories(solverConfig.mainMethodology).includes('destroy') &&
                                         renderSearchOperators(solverConfig.mainSearchOperators.destroy, 'destroy')}
                                     {getAllowedCategories(solverConfig.mainMethodology).includes('repair') &&
@@ -1210,9 +1364,21 @@ const SolverConfigurationPage = () => {
                                     <Typography variant="h6">Search Operators</Typography>
                                     <Grid container spacing={2}>
                                         {getAllowedCategories(solverConfig.secondaryMethodology).includes('intraRoute') &&
-                                            renderSearchOperators(solverConfig.secondarySearchOperators.intraRoute, 'intraRoute', true)}
+                                            (solverConfig.secondaryMethodology === 'VNS/VND'
+                                                ? renderVNSOperators(solverConfig.secondarySearchOperators.intraRoute, 'intraRoute', true)
+                                                : renderSearchOperators(
+                                                      solverConfig.secondarySearchOperators.intraRoute,
+                                                      'intraRoute',
+                                                      true
+                                                  ))}
                                         {getAllowedCategories(solverConfig.secondaryMethodology).includes('interRoute') &&
-                                            renderSearchOperators(solverConfig.secondarySearchOperators.interRoute, 'interRoute', true)}
+                                            (solverConfig.secondaryMethodology === 'VNS/VND'
+                                                ? renderVNSOperators(solverConfig.secondarySearchOperators.interRoute, 'interRoute', true)
+                                                : renderSearchOperators(
+                                                      solverConfig.secondarySearchOperators.interRoute,
+                                                      'interRoute',
+                                                      true
+                                                  ))}
                                         {getAllowedCategories(solverConfig.secondaryMethodology).includes('destroy') &&
                                             renderSearchOperators(solverConfig.secondarySearchOperators.destroy, 'destroy', true)}
                                         {getAllowedCategories(solverConfig.secondaryMethodology).includes('repair') &&

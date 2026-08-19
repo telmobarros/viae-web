@@ -22,7 +22,6 @@ const SelectInstanceSection = () => {
     const navigate = useNavigate();
 
     const handleSelectInstance = (instance) => {
-        console.log('Selected Instance:', instance);
         dispatch({ type: SET_INSTANCE, instance: instance });
         setDialogOpen(false);
         navigate('/');
@@ -62,14 +61,22 @@ const SelectInstanceSection = () => {
                 label={
                     <>
                         {selectedInstance && selectedInstance.hasOwnProperty('id') && (
-                            <Tooltip title={selectedInstance.dataset.name}>
+                            // Optional chaining because this renders in the
+                            // always-mounted AppBar: a persisted selection
+                            // missing `dataset` would otherwise crash the whole
+                            // layout rather than degrade to a bare name.
+                            <Tooltip title={selectedInstance?.dataset?.name || ''}>
                                 <Typography variant="h5" color={theme.palette.primary.main}>
                                     {selectedInstance.name}
                                 </Typography>
                             </Tooltip>
                         )}
                         <Button onClick={handleOpenDialog} variant="text" sx={{ padding: 0 }}>
-                            <Typography variant="subtitle2" color={theme.palette.primary[800]} sx={{ textDecoration: 'underline' }}>
+                            <Typography
+                                variant="subtitle2"
+                                color={theme.palette.primary[800] || theme.palette.primary.dark}
+                                sx={{ textDecoration: 'underline' }}
+                            >
                                 {selectedInstance && selectedInstance.hasOwnProperty('name') ? 'Change Instance' : 'Select Instance'}
                             </Typography>
                         </Button>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import {
     Box,
     Button,
@@ -16,9 +17,11 @@ import {
     Grid
 } from '@mui/material';
 import RefreshTwoToneIcon from '@mui/icons-material/RefreshTwoTone';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import { DataGrid } from '@mui/x-data-grid';
 
 import MainCard from 'ui-component/cards/MainCard';
+import DatasetInstanceLink from 'ui-component/DatasetInstanceLink';
 import authAxios from 'utils/axios';
 
 const formatNumber = (value, digits = 1) => {
@@ -28,6 +31,7 @@ const formatNumber = (value, digits = 1) => {
 };
 
 const LiveSolutionsPage = () => {
+    const navigate = useNavigate();
     const instance = useSelector((state) => state.instance.instance);
     const [problemInstances, setProblemInstances] = useState([]);
     const [problemInstanceFilter, setProblemInstanceFilter] = useState('');
@@ -119,6 +123,7 @@ const LiveSolutionsPage = () => {
                 id: s.id,
                 problemInstanceName: s.problemInstance?.name || '—',
                 datasetInstanceName: s.problemInstance?.datasetInstance?.name || '—',
+                datasetInstance: s.problemInstance?.datasetInstance || null,
                 datasetName: s.problemInstance?.datasetInstance?.dataset?.name || '—',
                 nVehicles: s.n_vehicles,
                 cost: s.cost,
@@ -133,7 +138,12 @@ const LiveSolutionsPage = () => {
         () => [
             { field: 'id', headerName: 'ID', width: 70 },
             { field: 'datasetName', headerName: 'Dataset', width: 130 },
-            { field: 'datasetInstanceName', headerName: 'Dataset Instance', width: 150 },
+            {
+                field: 'datasetInstanceName',
+                headerName: 'Dataset Instance',
+                width: 150,
+                renderCell: (params) => <DatasetInstanceLink instance={params.row.datasetInstance} label={params.value} />
+            },
             { field: 'problemInstanceName', headerName: 'Problem Instance', width: 150 },
             { field: 'nVehicles', headerName: 'Vehicles', width: 90 },
             {
@@ -179,9 +189,28 @@ const LiveSolutionsPage = () => {
                         </span>
                     </Tooltip>
                 )
+            },
+            {
+                field: 'simulate',
+                headerName: 'Simulate',
+                width: 100,
+                sortable: false,
+                filterable: false,
+                renderCell: (params) => (
+                    <Tooltip title="Open the route execution simulator for this solution">
+                        <span>
+                            <PlayCircleOutlineIcon
+                                fontSize="small"
+                                color="action"
+                                sx={{ cursor: 'pointer' }}
+                                onClick={() => navigate(`/live?solutionId=${params.row.id}`)}
+                            />
+                        </span>
+                    </Tooltip>
+                )
             }
         ],
-        [togglingId, handleToggleLive]
+        [togglingId, handleToggleLive, navigate]
     );
 
     if (!instance) {

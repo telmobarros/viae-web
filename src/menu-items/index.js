@@ -1,13 +1,10 @@
 import datasetInstance from './datasetInstance';
-import pages from './pages';
-import utilities from './utilities';
 import management from './management';
-import other from './other';
 
 // ==============================|| MENU ITEMS ||============================== //
 
 const menuItems = {
-    items: [datasetInstance, pages, utilities, management, other]
+    items: [datasetInstance, management]
 };
 
 export default menuItems;

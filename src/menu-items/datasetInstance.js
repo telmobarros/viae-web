@@ -1,8 +1,17 @@
 // assets
-import { IconDashboard, IconKey, IconTargetArrow, IconListCheck, IconShieldCheck, IconDatabase, IconFlask } from '@tabler/icons';
+import {
+    IconDashboard,
+    IconKey,
+    IconTargetArrow,
+    IconListCheck,
+    IconShieldCheck,
+    IconDatabase,
+    IconFlask,
+    IconVersions
+} from '@tabler/icons';
 
 // constant
-const icons = { IconDashboard, IconKey, IconTargetArrow, IconListCheck, IconShieldCheck, IconDatabase, IconFlask };
+const icons = { IconDashboard, IconKey, IconTargetArrow, IconListCheck, IconShieldCheck, IconDatabase, IconFlask, IconVersions };
 
 // ==============================|| DASHBOARD MENU ITEMS ||============================== //
 
@@ -18,6 +27,14 @@ const datasetInstance = {
             url: '/dashboard/default',
             icon: icons.IconDashboard,
             breadcrumbs: false
+        },
+        {
+            id: 'problemVariants',
+            title: 'Problem Variants',
+            type: 'item',
+            url: '/problem-instances',
+            icon: icons.IconVersions,
+            breadcrumbs: true
         },
         {
             id: 'objectiveFunction',
