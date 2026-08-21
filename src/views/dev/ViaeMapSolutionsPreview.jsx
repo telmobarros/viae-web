@@ -45,7 +45,11 @@ export default function ViaeMapSolutionsPreview() {
             if (cancelled) return;
             const result = res?.data?.result;
             if (!result) throw new Error('Empty response');
-            setScene(fromVisualizerPayload(result, { endpoint: executionId ? `solver_executions/visualizer/${executionId}` : `visualizer/solutions?ids=${solutionIds}` }));
+            setScene(
+                fromVisualizerPayload(result, {
+                    endpoint: executionId ? `solver_executions/visualizer/${executionId}` : `visualizer/solutions?ids=${solutionIds}`
+                })
+            );
         })
             .catch((e) => {
                 if (!cancelled) setError(e?.message || 'Failed to load');
@@ -62,9 +66,7 @@ export default function ViaeMapSolutionsPreview() {
         <MainCard title="ViaeMap solutions preview (dev)" content={false}>
             <Box sx={{ p: 2 }}>
                 {!executionId && !solutionIds && (
-                    <Typography color="text.secondary">
-                        Pass ?executionId=&lt;id&gt; or ?solutionIds=&lt;id&gt; in the URL.
-                    </Typography>
+                    <Typography color="text.secondary">Pass ?executionId=&lt;id&gt; or ?solutionIds=&lt;id&gt; in the URL.</Typography>
                 )}
                 <ViaeMap scene={scene} height={700} loading={loading} error={error} />
             </Box>

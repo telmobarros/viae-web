@@ -136,10 +136,48 @@ export const METRIC_GROUPS = [
     { key: 'summary', label: 'Summary' }
 ];
 
-const num = (d) => (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(d) : String(v));
-const int = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString() : String(v));
+/**
+ * Some RouteStop numeric fields (e.g. service_time, waiting_time,
+ * arrival/departure_vehicle_cost, arrival/departure_profit,
+ * time_window_violation) arrive from the backend as JSON STRINGS, not
+ * numbers -- confirmed directly against a real execution payload: `"0E-10"`,
+ * `"78.1688098595"`, quoted. Route/Solution-level fields (distance, cost,
+ * n_vehicles, ...) do not have this problem; they are plain JSON floats.
+ * The likely cause is a SQLAlchemy Numeric/Decimal column being serialized
+ * via Python's `str(Decimal(...))` rather than being coerced to float first
+ * -- the same class of bug Phase 2 fixed for Node.cx/cy (Float(asdecimal=True)
+ * yielding decimal.Decimal), just not on this column family.
+ *
+ * Without this coercion, `typeof v === 'number'` is false for those fields,
+ * so the format functions fell through to `String(v)` and rendered the raw
+ * Decimal repr verbatim -- "0E-10" instead of "0.00", full unrounded
+ * precision instead of 2dp. `Number()` parses scientific-notation strings
+ * correctly (`Number("0E-10") === 0`), so this coercion is enough; it does
+ * not require a backend change, and this stays a presentation-layer fix,
+ * not a routing-semantics one -- METRIC_SPEC remains display metadata only.
+ */
+function toNumber(v) {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string' && v.trim() !== '') {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+    }
+    return null;
+}
+
+const num = (d) => (v) => {
+    const n = toNumber(v);
+    return n !== null ? n.toFixed(d) : String(v);
+};
+const int = (v) => {
+    const n = toNumber(v);
+    return n !== null ? n.toLocaleString() : String(v);
+};
 const bool = (v) => (v ? 'Yes' : 'No');
-const violation = (v) => (typeof v === 'number' && v > 0 ? 'error' : null);
+const violation = (v) => {
+    const n = toNumber(v);
+    return n !== null && n > 0 ? 'error' : null;
+};
 
 export const METRIC_SPEC = [
     // time
