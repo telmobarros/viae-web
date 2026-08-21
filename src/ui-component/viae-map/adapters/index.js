@@ -143,8 +143,17 @@ export function fromInstanceNodes(result, meta = {}) {
             returned: nodes.length,
             truncated: Boolean(result.truncated),
             skippedNoCoords: skipped,
-            source: BudgetSource.SERVER
+            source: BudgetSource.SERVER,
+            // How the background tier was chosen: 'grid' (spatially
+            // representative sampling), 'complete' (budget wasn't hit),
+            // 'ordered_fallback' (grid sampling failed), or 'none'.
+            sampling: result.sampling || null
         },
+        // Instance-level coordinate-system diagnostics (node_sampling.py /
+        // visualizer_payload.py): per-node mixing is schema-impossible, but
+        // an instance assembled from an external DataSource can still hold
+        // both systems, which would otherwise strand the minority silently.
+        diagnostics: result.diagnostics || null,
         source: { endpoint: meta.endpoint || 'dataset_instances/nodes', fetchedAt: Date.now() }
     };
 }
@@ -159,9 +168,10 @@ export function fromVisualizerPayload(result, meta = {}) {
     if (!result) return null;
     const instance = result.instance || {};
     const isGeo = instance.coordinates === 'lat_lng';
-    // These endpoints never emit z today (app/views.py:2121 drops cz), so a
-    // 3D instance still renders as 2D here until that additive fix lands.
-    const dims = !isGeo && Object.values(instance.nodes || {}).some((n) => Number.isFinite(n.z)) ? 3 : 2;
+    // has_z is authoritative from the server (visualizer_payload.py); fall
+    // back to sniffing a node in case an older backend without the field is
+    // ever hit, same as the dims computation below did before has_z existed.
+    const dims = !isGeo && (instance.has_z || Object.values(instance.nodes || {}).some((n) => Number.isFinite(n.z))) ? 3 : 2;
 
     const raw = Object.values(instance.nodes || {});
     const nodes = [];
@@ -184,28 +194,37 @@ export function fromVisualizerPayload(result, meta = {}) {
 
     const nodeIndex = buildIndex(nodes);
     const solutions = buildSolutions(result.solutions, nodeIndex);
-    const rawLinks = instance.links;
+    const rawLinks = instance.links || [];
+
+    // links_status is now authoritative from the server (load_links() in
+    // visualizer_payload.py distinguishes ok/none/truncated/error instead of
+    // collapsing every case to an empty array). model.js's LinkStatus values
+    // are the same strings the backend's LinkStatus class emits, so this is
+    // a direct pass-through, not a remap.
+    const linksStatus =
+        instance.links_status && LinkStatus[instance.links_status.toUpperCase()]
+            ? instance.links_status
+            : rawLinks.length
+              ? LinkStatus.OK
+              : LinkStatus.NONE;
 
     return {
         space: { kind: isGeo ? 'geo' : 'plane', dims },
         bbox: bboxOf(nodes.map((n) => n.pos)),
         nodes,
         nodeIndex,
-        links: rawLinks
-            ? {
-                  items: rawLinks,
-                  total: instance.links_total ?? rawLinks.length,
-                  returned: rawLinks.length,
-                  truncated: Boolean(instance.links_truncated),
-                  // The endpoint currently swallows link-loading errors into
-                  // `[]`, so an empty array is genuinely ambiguous until the
-                  // additive metadata fix lands. Report NONE, not OK, so the
-                  // UI doesn't claim certainty it doesn't have.
-                  status: rawLinks.length ? LinkStatus.OK : LinkStatus.NONE
-              }
-            : EMPTY_LINKS,
+        links: {
+            items: rawLinks,
+            total: instance.links_total ?? rawLinks.length,
+            returned: instance.links_returned ?? rawLinks.length,
+            truncated: Boolean(instance.links_truncated),
+            status: linksStatus,
+            error: instance.links_error || null
+        },
         solutions,
         live: null,
+        // Instance-level mixed-space diagnostics -- see fromInstanceNodes.
+        diagnostics: instance.diagnostics || null,
         budget: {
             total: instance.total ?? nodes.length,
             returned: nodes.length,
@@ -325,7 +344,9 @@ export function fromLiveSnapshot(snapshot, meta = {}) {
         nodes,
         nodeIndex,
         links: EMPTY_LINKS,
-        solutions: vroutes.length ? [{ id: 'live', label: 'Live routes', metrics: {}, routes: vroutes, unserved: { count: null, ids: null, truncated: false } }] : [],
+        solutions: vroutes.length
+            ? [{ id: 'live', label: 'Live routes', metrics: {}, routes: vroutes, unserved: { count: null, ids: null, truncated: false } }]
+            : [],
         live: { vehicles, trails },
         budget: { total: nodes.length, returned: nodes.length, truncated: false, source: BudgetSource.NONE },
         source: { endpoint: meta.endpoint || 'live/routes', fetchedAt: Date.now(), mixedSpace: mixed }

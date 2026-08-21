@@ -73,6 +73,29 @@ describe('fromInstanceNodes', () => {
         expect(scene.budget.truncated).toBe(true);
         expect(scene.budget.source).toBe('server');
     });
+
+    it('surfaces the sampling strategy the server used for the background tier', () => {
+        // 'grid' is the representative spatial sampling (node_sampling.py);
+        // this is the field the UI needs to explain the truncation chip
+        // honestly rather than implying an arbitrary/id-ordered cut.
+        const scene = fromInstanceNodes({
+            coordinates: 'lat_lng',
+            nodes: { 1: { id: 1, lat: 1, lng: 2 } },
+            total: 2744443,
+            truncated: true,
+            sampling: 'grid'
+        });
+        expect(scene.budget.sampling).toBe('grid');
+    });
+
+    it('surfaces instance-level mixed-space diagnostics', () => {
+        const scene = fromInstanceNodes({
+            coordinates: 'lat_lng',
+            nodes: { 1: { id: 1, lat: 1, lng: 2 } },
+            diagnostics: { geographic_nodes: 1, cartesian_nodes: 1, nodes_without_coordinates: 0, mixed_spatial_representation: true }
+        });
+        expect(scene.diagnostics.mixed_spatial_representation).toBe(true);
+    });
 });
 
 describe('fromLiveSnapshot', () => {
@@ -218,9 +241,53 @@ describe('fromVisualizerPayload', () => {
         expect(scene.solutions[0].unserved.ids).toBeNull();
     });
 
-    it('reports link status as NONE (not OK) when the array is empty, since the endpoint swallows errors', () => {
+    it('falls back to NONE for an empty array when the server sends no links_status (older payload shape)', () => {
         const noLinks = { ...payload, instance: { ...payload.instance, links: [] } };
         expect(fromVisualizerPayload(noLinks).links.status).toBe('none');
+    });
+
+    it('trusts the server-reported links_status instead of re-deriving it from array length', () => {
+        // load_links() (visualizer_payload.py) now distinguishes ok/none/
+        // truncated/error explicitly. An ERROR status with items:[] must NOT
+        // be reported as NONE -- that would tell the UI "no links exist" when
+        // loading actually failed.
+        const errored = {
+            ...payload,
+            instance: { ...payload.instance, links: [], links_status: 'error', links_error: 'link table unreadable' }
+        };
+        const scene = fromVisualizerPayload(errored);
+        expect(scene.links.status).toBe('error');
+        expect(scene.links.error).toBe('link table unreadable');
+    });
+
+    it('reports truncation and totals from the server rather than the returned array length', () => {
+        const truncated = {
+            ...payload,
+            instance: { ...payload.instance, links_status: 'truncated', links_total: 50000, links_returned: 1, links_truncated: true }
+        };
+        const scene = fromVisualizerPayload(truncated);
+        expect(scene.links.status).toBe('truncated');
+        expect(scene.links.total).toBe(50000);
+        expect(scene.links.truncated).toBe(true);
+    });
+
+    it('surfaces instance-level mixed-space diagnostics', () => {
+        const mixed = {
+            ...payload,
+            instance: {
+                ...payload.instance,
+                diagnostics: { geographic_nodes: 2, cartesian_nodes: 3, nodes_without_coordinates: 0, mixed_spatial_representation: true }
+            }
+        };
+        expect(fromVisualizerPayload(mixed).diagnostics.mixed_spatial_representation).toBe(true);
+    });
+
+    it('reads has_z from the server field rather than only sniffing a node', () => {
+        const flat3d = {
+            ...payload,
+            instance: { ...payload.instance, has_z: true } // no node actually carries z in this fixture
+        };
+        expect(fromVisualizerPayload(flat3d).space.dims).toBe(3);
     });
 });
 

@@ -56,7 +56,8 @@
  * @property {Object} links                   // {items,total,returned,truncated,status}
  * @property {VSolution[]} solutions
  * @property {Object|null} live               // {vehicles,trails} or null
- * @property {Object} budget                  // {total,returned,truncated,source}
+ * @property {Object} budget                  // {total,returned,truncated,source,sampling?}
+ * @property {Object|null} [diagnostics]       // {geographic_nodes,cartesian_nodes,nodes_without_coordinates,mixed_spatial_representation}
  * @property {Object} source                  // {endpoint,fetchedAt} -- provenance
  */
 
