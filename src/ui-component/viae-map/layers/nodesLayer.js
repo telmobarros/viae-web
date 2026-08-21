@@ -4,6 +4,15 @@
  * The styling logic lives in ./nodeStyle.js, split out because it has no
  * deck.gl import and this file does -- see nodeStyle.js for why that split
  * matters for testability here.
+ *
+ * Picking: no per-layer onHover/onClick here. With multiple coincident
+ * pickable layers (nodes, routes, route stops all sharing screen space),
+ * per-layer callbacks have no guaranteed ordering when the pointer crosses
+ * layer boundaries within one pick, which can produce a spurious
+ * clear-then-set flicker. ViaeMap wires <DeckGL onHover>/<DeckGL onClick> at
+ * the top level instead, which reports exactly one unambiguous topmost hit
+ * (including its owning `info.layer.id`) per pointer event -- see
+ * selection/useSelection.js and picking/useHover.js.
  */
 import { ScatterplotLayer } from '@deck.gl/layers';
 
@@ -18,10 +27,8 @@ export { colorFor, radiusPropsFor, selectionOutlineColor };
  * @param {number|string|null} [params.hoveredId]
  * @param {number|string|null} [params.selectedId]
  * @param {'light'|'dark'} [params.themeMode]
- * @param {(info: Object) => void} [params.onHover]
- * @param {(info: Object) => void} [params.onClick]
  */
-export function buildNodesLayer({ nodes, spaceMode, hoveredId = null, selectedId = null, themeMode = 'light', onHover, onClick }) {
+export function buildNodesLayer({ nodes, spaceMode, hoveredId = null, selectedId = null, themeMode = 'light' }) {
     const outlineColor = selectionOutlineColor(themeMode);
     return new ScatterplotLayer({
         id: 'viae-map-nodes',
@@ -36,8 +43,6 @@ export function buildNodesLayer({ nodes, spaceMode, hoveredId = null, selectedId
         updateTriggers: {
             getFillColor: [hoveredId, selectedId],
             getLineColor: [selectedId]
-        },
-        onHover,
-        onClick
+        }
     });
 }

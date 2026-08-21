@@ -1,9 +1,15 @@
 /**
- * Click-to-pin selection logic: click selects, clicking the same object
- * again unpins, clicking empty space unpins. Exercised through a minimal
- * react-dom harness (no testing-library dependency in this project) rather
- * than by re-implementing the hook's logic as a plain function, since the
- * controlled/uncontrolled split is the part actually worth protecting.
+ * Click-to-pin selection: click selects, clicking the same thing again
+ * unpins, clicking empty space unpins. Phase 5 generalized this from
+ * "one node id" to kind-aware selection (node/route/stop/solution), resolved
+ * from which LAYER deck.gl reports as hit -- these tests exercise that
+ * precedence resolution directly, since it's the part most likely to
+ * silently regress into "clicking a stop selects the node underneath it".
+ *
+ * Exercised through a minimal react-dom harness (no testing-library
+ * dependency in this project) rather than by re-implementing the hook's
+ * logic as a plain function, since the controlled/uncontrolled split and the
+ * toggle-to-unpin behaviour are what's actually worth protecting.
  */
 import { act } from 'react-dom/test-utils';
 import { createRoot } from 'react-dom/client';
@@ -43,59 +49,116 @@ function mountHook(props) {
     };
 }
 
-describe('useSelection (uncontrolled)', () => {
-    it('starts with nothing selected', () => {
+describe('useSelection: picking precedence by info.layer.id', () => {
+    it('resolves a click on the nodes layer to node selection', () => {
         const h = mountHook({});
-        expect(h.current.selectedId).toBeNull();
+        act(() => h.current.onClick({ object: { id: 7 }, layer: { id: 'viae-map-nodes' } }));
+        expect(h.current.selection).toEqual({ kind: 'node', nodeId: 7 });
         h.unmount();
     });
 
-    it('selects on click', () => {
+    it('resolves a click on the routes layer to route selection, reading the embedded route back-reference', () => {
         const h = mountHook({});
-        act(() => h.current.onClick({ object: { id: 7 } }));
-        expect(h.current.selectedId).toBe(7);
+        const route = { id: 3, solutionId: 9 };
+        act(() => h.current.onClick({ object: { route }, layer: { id: 'viae-map-routes' } }));
+        expect(h.current.selection).toEqual({ kind: 'route', routeId: 3, solutionId: 9 });
         h.unmount();
     });
 
-    it('unpins when clicking the already-selected object again', () => {
+    it('resolves a click on the route-stops layer to stop selection -- this is the precedence case: a stop sits on top of its background node at the same pixel, and must win', () => {
         const h = mountHook({});
-        act(() => h.current.onClick({ object: { id: 7 } }));
-        act(() => h.current.onClick({ object: { id: 7 } }));
-        expect(h.current.selectedId).toBeNull();
+        const stop = { nodeId: 12, sequence: 4 };
+        act(() => h.current.onClick({ object: { stop, routeId: 3, solutionId: 9 }, layer: { id: 'viae-map-route-stops' } }));
+        expect(h.current.selection).toEqual({ kind: 'stop', nodeId: 12, sequence: 4, routeId: 3, solutionId: 9 });
         h.unmount();
     });
 
-    it('unpins when clicking empty space', () => {
+    it('clears selection on a click that hit no pickable object (background/basemap)', () => {
         const h = mountHook({});
-        act(() => h.current.onClick({ object: { id: 7 } }));
-        act(() => h.current.onClick({}));
-        expect(h.current.selectedId).toBeNull();
+        act(() => h.current.onClick({ object: { id: 7 }, layer: { id: 'viae-map-nodes' } }));
+        act(() => h.current.onClick({ object: null }));
+        expect(h.current.selection).toBeNull();
         h.unmount();
     });
 
-    it('switches selection when clicking a different object', () => {
+    it('clears selection for a hit on an unrecognized layer rather than guessing', () => {
         const h = mountHook({});
-        act(() => h.current.onClick({ object: { id: 7 } }));
-        act(() => h.current.onClick({ object: { id: 9 } }));
-        expect(h.current.selectedId).toBe(9);
+        act(() => h.current.onClick({ object: { id: 7 }, layer: { id: 'viae-map-nodes' } }));
+        act(() => h.current.onClick({ object: { foo: 1 }, layer: { id: 'viae-map-basemap' } }));
+        expect(h.current.selection).toBeNull();
         h.unmount();
     });
 });
 
-describe('useSelection (controlled)', () => {
-    it('reflects the controlled nodeId prop rather than internal state', () => {
-        const h = mountHook({ nodeId: 3 });
-        expect(h.current.selectedId).toBe(3);
+describe('useSelection: toggle-to-unpin', () => {
+    it('unpins when clicking the already-selected node again', () => {
+        const h = mountHook({});
+        const info = { object: { id: 7 }, layer: { id: 'viae-map-nodes' } };
+        act(() => h.current.onClick(info));
+        act(() => h.current.onClick(info));
+        expect(h.current.selection).toBeNull();
+        h.unmount();
+    });
+
+    it('does NOT treat a different stop on the SAME route as the same selection', () => {
+        const h = mountHook({});
+        act(() =>
+            h.current.onClick({
+                object: { stop: { nodeId: 1, sequence: 0 }, routeId: 3, solutionId: 9 },
+                layer: { id: 'viae-map-route-stops' }
+            })
+        );
+        act(() =>
+            h.current.onClick({
+                object: { stop: { nodeId: 2, sequence: 1 }, routeId: 3, solutionId: 9 },
+                layer: { id: 'viae-map-route-stops' }
+            })
+        );
+        expect(h.current.selection).toEqual({ kind: 'stop', nodeId: 2, sequence: 1, routeId: 3, solutionId: 9 });
+        h.unmount();
+    });
+
+    it('does NOT treat the same route id in a DIFFERENT solution as the same selection', () => {
+        // Route ids are only unique within one solution's own routes array;
+        // this is exactly the cross-solution collision routeKey()/solutionId
+        // exist to prevent.
+        const h = mountHook({});
+        act(() => h.current.onClick({ object: { route: { id: 1, solutionId: 'A' } }, layer: { id: 'viae-map-routes' } }));
+        act(() => h.current.onClick({ object: { route: { id: 1, solutionId: 'B' } }, layer: { id: 'viae-map-routes' } }));
+        expect(h.current.selection).toEqual({ kind: 'route', routeId: 1, solutionId: 'B' });
+        h.unmount();
+    });
+});
+
+describe('useSelection: imperative selectors', () => {
+    it('selectRoute/selectStop/selectNode/selectSolution set the expected shape', () => {
+        const h = mountHook({});
+        act(() => h.current.selectSolution(5));
+        expect(h.current.selection).toEqual({ kind: 'solution', solutionId: 5 });
+
+        act(() => h.current.selectRoute({ id: 2, solutionId: 5 }));
+        expect(h.current.selection).toEqual({ kind: 'route', routeId: 2, solutionId: 5 });
+
+        act(() => h.current.clear());
+        expect(h.current.selection).toBeNull();
+        h.unmount();
+    });
+});
+
+describe('useSelection: controlled mode', () => {
+    it('reflects the controlled `selection` prop rather than internal state', () => {
+        const h = mountHook({ selection: { kind: 'node', nodeId: 3 } });
+        expect(h.current.selection).toEqual({ kind: 'node', nodeId: 3 });
         h.unmount();
     });
 
     it('calls onChange instead of mutating its own state when controlled', () => {
         const onChange = jest.fn();
-        const h = mountHook({ nodeId: 3, onChange });
-        act(() => h.current.onClick({ object: { id: 5 } }));
-        expect(onChange).toHaveBeenCalledWith(5);
-        // Still reflects the prop (unchanged by the caller in this test), not 5.
-        expect(h.current.selectedId).toBe(3);
+        const h = mountHook({ selection: { kind: 'node', nodeId: 3 }, onChange });
+        act(() => h.current.onClick({ object: { id: 5 }, layer: { id: 'viae-map-nodes' } }));
+        expect(onChange).toHaveBeenCalledWith({ kind: 'node', nodeId: 5 });
+        // Still reflects the prop (unchanged by the caller in this test).
+        expect(h.current.selection).toEqual({ kind: 'node', nodeId: 3 });
         h.unmount();
     });
 });

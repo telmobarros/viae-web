@@ -1,9 +1,12 @@
 /**
  * Floating bottom-left legend: node-kind swatches.
  *
- * Route swatches join this once routes exist as a layer (Phase 5); until
- * then a legend with entries for a layer that isn't drawn yet would be
- * exactly the kind of speculative UI this refactor is trying to avoid.
+ * Deliberately does NOT grow route entries now that routes exist (Phase 5):
+ * an instance with dozens of routes would turn this into the exact
+ * always-expanded control surface the route list (panels/RouteList.jsx) is
+ * built to avoid, and every route already gets its color swatch + label
+ * there. Node kinds stay here because they apply regardless of which
+ * solution (if any) is active.
  */
 import { Box, Paper, Stack, Typography } from '@mui/material';
 

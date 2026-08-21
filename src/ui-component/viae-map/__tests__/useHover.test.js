@@ -97,4 +97,22 @@ describe('useHover', () => {
         expect(h.current.hoverPos).toBeNull();
         h.unmount();
     });
+
+    it('captures which layer was hit, so callers can resolve picking context without guessing from object shape', () => {
+        const h = mountHook();
+        act(() => h.current.onHover({ object: { id: 1 }, x: 1, y: 1, layer: { id: 'viae-map-route-stops' } }));
+        flush();
+        expect(h.current.hoveredLayerId).toBe('viae-map-route-stops');
+        h.unmount();
+    });
+
+    it('clears the layer id along with the hover state', () => {
+        const h = mountHook();
+        act(() => h.current.onHover({ object: { id: 1 }, x: 1, y: 1, layer: { id: 'viae-map-nodes' } }));
+        flush();
+        act(() => h.current.onHover({ object: null }));
+        flush();
+        expect(h.current.hoveredLayerId).toBeNull();
+        h.unmount();
+    });
 });

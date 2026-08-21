@@ -81,17 +81,25 @@ export function assertScene(scene, context = {}) {
         warn(problems[problems.length - 1], bbox);
     }
 
-    // 5. Routes whose stops could not all be resolved -- the signature of a
-    //    route-blind node budget. This is the invariant the whole
-    //    capBackgroundNodes design exists to protect.
+    // 5. A route stop that is genuinely coordinate-less (r.missingCoordinates)
+    //    is an EXPECTED data state, not a bug -- it is not reported here.
+    //    (adapters/index.js already renders it honestly as a segment break,
+    //    per scale/geometry.js, rather than an invented straight line; the
+    //    UI surfaces it as an informational diagnostic, not a warning.)
+    //
+    //    A route stop missing FROM THE PAYLOAD ENTIRELY (r.missingFromPayload)
+    //    is different: the route-preserving node budget (capBackgroundNodes)
+    //    exists specifically so a routed node is never sampled away, so this
+    //    should be structurally impossible. A non-zero count here means that
+    //    invariant broke somewhere upstream, and is treated as a real bug.
     (scene.solutions || []).forEach((sol) => {
         (sol.routes || []).forEach((r) => {
-            if (r.missingNodes > 0) {
+            if (r.missingFromPayload > 0) {
                 const msg =
-                    `route ${r.id} references ${r.missingNodes} node(s) missing from the scene ` +
-                    '-- its path is broken; a node budget probably sampled away a routed node';
+                    `route ${r.id} references ${r.missingFromPayload} node(s) absent from the payload entirely ` +
+                    '-- the route-preserving node budget should make this impossible; a routed node was likely sampled away upstream';
                 problems.push(msg);
-                warn(msg);
+                warn(msg, { routeId: r.id, missingFromPayload: r.missingFromPayload });
             }
         });
     });

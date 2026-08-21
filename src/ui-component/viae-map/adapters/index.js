@@ -19,6 +19,7 @@
  */
 import { BudgetSource, LinkStatus, canonicalizeMetrics } from '../model';
 import { bboxOf, routeNodeIds } from '../scale/budget';
+import { splitIntoSegments } from '../scale/geometry';
 import { routeColor } from '../palette';
 
 const EMPTY_LINKS = { items: [], total: 0, returned: 0, truncated: false, status: LinkStatus.NOT_REQUESTED };
@@ -36,28 +37,42 @@ function buildIndex(nodes) {
 }
 
 /**
- * Resolve a route's polyline from its stops via the node index.
+ * Resolve a route's geometry from its stops via the node index, as
+ * contiguous segments rather than one stitched-together path.
  *
- * Stops carry no coordinates of their own -- only `node_id` -- so the path is
- * a lookup. A missing node yields a gap rather than a thrown error, but it is
- * a symptom of a route-blind node budget (see capBackgroundNodes) and is
- * reported through `missingNodes` so the UI can surface it honestly instead
- * of silently drawing a wrong line.
+ * Stops carry no coordinates of their own -- only `node_id` -- so this is a
+ * lookup, and a lookup can fail for two structurally different reasons:
+ *
+ *   - the node is a genuine, known member of this instance but has no
+ *     coordinates in the active space (`coordlessIds` -- an expected data
+ *     state, e.g. an ASAE record with no geocode);
+ *   - the node isn't in the payload at all. Given the route-preserving
+ *     budget invariant (routed nodes are never sampled away), this should
+ *     never happen -- if it does, it is a real bug upstream, not a data
+ *     property, so it is counted separately (`missingFromPayload`) rather
+ *     than folded into the same bucket as an expected gap.
+ *
+ * Either way, splitIntoSegments (scale/geometry.js) turns the gap into a
+ * break between two honestly-drawn segments instead of silently inventing a
+ * straight line across it.
  */
-function resolvePath(stops, nodeIndex) {
-    const path = [];
-    let missing = 0;
-    stops.forEach((s) => {
+function resolveRouteGeometry(stops, nodeIndex, coordlessIds) {
+    let missingCoordinates = 0;
+    let missingFromPayload = 0;
+    const positions = stops.map((s) => {
         const n = nodeIndex.get(s.nodeId);
-        if (n && n.pos) path.push(n.pos);
-        else missing += 1;
+        if (n && n.pos) return n.pos;
+        if (coordlessIds && coordlessIds.has(s.nodeId)) missingCoordinates += 1;
+        else missingFromPayload += 1;
+        return null;
     });
-    return { path, missing };
+    return { segments: splitIntoSegments(positions), missingCoordinates, missingFromPayload };
 }
 
-function buildSolutions(rawSolutions, nodeIndex) {
+function buildSolutions(rawSolutions, nodeIndex, coordlessIds) {
     const list = Array.isArray(rawSolutions) ? rawSolutions : Object.values(rawSolutions || {});
     return list.map((sol, si) => {
+        const solutionId = sol.id ?? si;
         const routes = (sol.routes || []).map((r, ri) => {
             const stops = (r.stops || [])
                 .slice()
@@ -68,22 +83,25 @@ function buildSolutions(rawSolutions, nodeIndex) {
                     pos: (nodeIndex.get(s.node_id ?? s.nodeId) || {}).pos,
                     metrics: canonicalizeMetrics(s, true)
                 }));
-            const { path, missing } = resolvePath(stops, nodeIndex);
+            const { segments, missingCoordinates, missingFromPayload } = resolveRouteGeometry(stops, nodeIndex, coordlessIds);
             return {
                 id: r.id ?? `${sol.id}-${ri}`,
+                solutionId,
                 label: `R${ri + 1}`,
                 color: routeColor(ri),
                 vehicleId: r.vehicle_id ?? r.vehicleId,
                 driverId: r.driver_id ?? r.driverId,
                 metrics: { ...canonicalizeMetrics(r, true), nStops: stops.length },
                 stops,
-                path,
-                missingNodes: missing
+                segments,
+                missingCoordinates,
+                missingFromPayload,
+                missingNodes: missingCoordinates + missingFromPayload
             };
         });
         return {
-            id: sol.id ?? si,
-            label: sol.name || `Solution ${sol.id ?? si}`,
+            id: solutionId,
+            label: sol.name || `Solution ${solutionId}`,
             metrics: canonicalizeMetrics(sol, true),
             routes,
             unserved: {
@@ -175,25 +193,29 @@ export function fromVisualizerPayload(result, meta = {}) {
 
     const raw = Object.values(instance.nodes || {});
     const nodes = [];
-    let skipped = 0;
+    // Node ids present in the payload but lacking the active system's
+    // coordinates -- distinct from "not in the payload at all", see
+    // resolveRouteGeometry above.
+    const coordlessIds = new Set();
     raw.forEach((n) => {
         if (isGeo) {
             if (!Number.isFinite(n.lat) || !Number.isFinite(n.lng)) {
-                skipped += 1;
+                coordlessIds.add(n.id);
                 return;
             }
             nodes.push({ id: n.id, kind: nodeKind(n), pos: [n.lng, n.lat], props: n });
         } else {
             if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) {
-                skipped += 1;
+                coordlessIds.add(n.id);
                 return;
             }
             nodes.push({ id: n.id, kind: nodeKind(n), pos: dims === 3 ? [n.x, n.y, n.z ?? 0] : [n.x, n.y], props: n });
         }
     });
+    const skipped = coordlessIds.size;
 
     const nodeIndex = buildIndex(nodes);
-    const solutions = buildSolutions(result.solutions, nodeIndex);
+    const solutions = buildSolutions(result.solutions, nodeIndex, coordlessIds);
     const rawLinks = instance.links || [];
 
     // links_status is now authoritative from the server (load_links() in
@@ -299,14 +321,24 @@ export function fromLiveSnapshot(snapshot, meta = {}) {
                 // live metrics are already camelCase and a strict subset
                 metrics: canonicalizeMetrics(s.metrics, true)
             }));
+        // Unlike the visualizer payload, every live stop carries its own
+        // inline coords (valid or not) rather than resolving through a
+        // shared node index, so there is no separate "known but
+        // coordinate-less" bucket here -- a gap is always this stop's own
+        // telemetry being unresolvable. Same splitIntoSegments discipline
+        // regardless: never stitch a straight line across it.
+        const missingCoordinates = stops.filter((s) => !s.pos).length;
         return {
             id: r.id,
+            solutionId: 'live',
             label: r.label || `Route ${r.id}`,
             color: routeColor(ri),
             metrics: { nStops: stops.length },
             stops,
-            path: stops.map((s) => s.pos).filter(Boolean),
-            missingNodes: 0
+            segments: splitIntoSegments(stops.map((s) => s.pos)),
+            missingCoordinates,
+            missingFromPayload: 0,
+            missingNodes: missingCoordinates
         };
     });
 

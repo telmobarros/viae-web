@@ -29,17 +29,26 @@
  * @typedef {Object} VStop
  * @property {number|string} nodeId
  * @property {number} sequence
- * @property {number[]} [pos]        // resolved from the node index
+ * @property {number[]} [pos]        // resolved from the node index; absent if coordinate-less
  * @property {Object} metrics        // canonical METRIC_SPEC keys
  *
  * @typedef {Object} VRoute
  * @property {number|string} id
+ * @property {number|string} [solutionId]  // back-reference; needed for cross-solution-safe selection/visibility keys
  * @property {string} label
  * @property {number[]} color        // [r,g,b]
  * @property {number|string} [vehicleId]
  * @property {Object} metrics
  * @property {VStop[]} stops
- * @property {number[][]} path       // pos[] -- resolved through the node index
+ * @property {number[][][]} segments // contiguous renderable runs -- see scale/geometry.js.
+ *                                   // NEVER stitched across a gap: a coordinate-less or
+ *                                   // budget-dropped stop breaks the route into two segments
+ *                                   // rather than inventing a straight line across it.
+ * @property {number} missingCoordinates  // stops skipped because the node genuinely has no coordinates
+ * @property {number} missingFromPayload  // stops skipped because the node wasn't in the payload at all
+ *                                        // (should not happen given the route-preserving budget invariant --
+ *                                        // a non-zero count here is a real bug, not an expected data state)
+ * @property {number} missingNodes   // missingCoordinates + missingFromPayload, for a quick "is this route broken" check
  *
  * @typedef {Object} VSolution
  * @property {number|string} id
@@ -76,6 +85,31 @@ export const BudgetSource = {
     CLIENT: 'client',
     NONE: 'none'
 };
+
+/**
+ * What kind of thing is selected/hovered. Read from `info.layer.id` at pick
+ * time (see layers/*.js), never inferred from the picked object's shape --
+ * that keeps picking precedence an explicit, intentional decision (stops
+ * layer drawn above the routes layer drawn above the nodes layer) rather
+ * than a guess based on which fields happen to be present.
+ */
+export const PickKind = {
+    NODE: 'node',
+    ROUTE: 'route',
+    STOP: 'stop',
+    SOLUTION: 'solution'
+};
+
+/**
+ * Composite key for route visibility/selection state. Route ids are only
+ * unique WITHIN a solution's own routes array in general (nothing in the
+ * backend payload guarantees cross-solution uniqueness), so keying state by
+ * bare route id risks one solution's toggle silently applying to another's
+ * route of the same id once multiple solutions are in one Scene.
+ */
+export function routeKey(solutionId, routeId) {
+    return `${solutionId}:${routeId}`;
+}
 
 /**
  * Metric PRESENTATION registry.

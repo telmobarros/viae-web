@@ -20,6 +20,10 @@ const SolutionVisualizerPage = Loadable(lazy(() => import('views/visualizers/Sol
 const SolverExecutions = Loadable(lazy(() => import('views/solver-executions')));
 const SolverExecutionCharts = Loadable(lazy(() => import('views/solver-executions/ExecutionCharts')));
 
+// Phase 5 (visualizer refactor) browser-verification page -- not linked from
+// any menu, see views/dev/ViaeMapSolutionsPreview.jsx's docstring.
+const ViaeMapSolutionsPreview = Loadable(lazy(() => import('views/dev/ViaeMapSolutionsPreview')));
+
 // live routing
 const LiveRoutes = Loadable(lazy(() => import('views/live/LiveRoutes')));
 const LiveSolutions = Loadable(lazy(() => import('views/live/LiveSolutions')));
@@ -135,6 +139,10 @@ const MainRoutes = {
         {
             path: 'admin/exploration',
             element: <ExplorationPage />
+        },
+        {
+            path: 'dev/viae-map-solutions-preview',
+            element: <ViaeMapSolutionsPreview />
         },
         {
             // The page moved into the admin back-office. There is no catch-all

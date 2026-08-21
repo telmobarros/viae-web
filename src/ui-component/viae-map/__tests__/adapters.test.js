@@ -166,17 +166,37 @@ describe('fromLiveSnapshot', () => {
         expect(scene.source.mixedSpace).toBe(true);
     });
 
-    it('builds a route path in stop-sequence order', () => {
+    it('builds route geometry as a single segment in stop-sequence order', () => {
         const scene = fromLiveSnapshot(
             liveSnapshot('euclidean', [
                 { lat: 3, lng: 4 },
                 { lat: 30, lng: 40 }
             ])
         );
-        expect(scene.solutions[0].routes[0].path).toEqual([
-            [3, 4],
-            [30, 40]
+        expect(scene.solutions[0].routes[0].segments).toEqual([
+            [
+                [3, 4],
+                [30, 40]
+            ]
         ]);
+    });
+
+    it('splits into segments around a stop with unresolvable coords, rather than inventing a line across it', () => {
+        const snapshot = {
+            routes: [
+                {
+                    id: 1,
+                    stops: [
+                        { nodeId: 1, sequence: 0, coords: { lat: 3, lng: 4, system: 'euclidean' } },
+                        { nodeId: 2, sequence: 1, coords: null },
+                        { nodeId: 3, sequence: 2, coords: { lat: 30, lng: 40, system: 'euclidean' } }
+                    ]
+                }
+            ]
+        };
+        const scene = fromLiveSnapshot(snapshot);
+        expect(scene.solutions[0].routes[0].segments).toEqual([[[3, 4]], [[30, 40]]]);
+        expect(scene.solutions[0].routes[0].missingCoordinates).toBe(1);
     });
 });
 
@@ -212,13 +232,21 @@ describe('fromVisualizerPayload', () => {
         }
     };
 
-    it('resolves route geometry through the node index', () => {
+    it('resolves route geometry through the node index as a single segment when nothing is missing', () => {
         const scene = fromVisualizerPayload(payload);
-        expect(scene.solutions[0].routes[0].path).toEqual([
-            [0, 0],
-            [10, 0],
-            [0, 0]
+        expect(scene.solutions[0].routes[0].segments).toEqual([
+            [
+                [0, 0],
+                [10, 0],
+                [0, 0]
+            ]
         ]);
+        expect(scene.solutions[0].routes[0].missingNodes).toBe(0);
+    });
+
+    it('tags each route with its parent solutionId', () => {
+        const scene = fromVisualizerPayload(payload);
+        expect(scene.solutions[0].routes[0].solutionId).toBe(5);
     });
 
     it('canonicalizes snake_case stop metrics to camelCase spec keys', () => {
@@ -228,11 +256,35 @@ describe('fromVisualizerPayload', () => {
         expect(stop.metrics.timeWindowViolation).toBe(3);
     });
 
-    it('reports missing nodes rather than silently drawing a broken path', () => {
+    it('splits a route into contiguous segments around a coordinate-less stop, rather than inventing a line across the gap', () => {
+        // The exact scenario from the Phase 5 requirement: route A(1)->B(2)->A(1)
+        // where node 2 is present in the payload but genuinely coordinate-less
+        // (no x/y at all -- e.g. a real ASAE record with no geocode). Must
+        // render as two one-point segments, never as a stitched [A, A] line
+        // that quietly drops the visit to B.
+        const withGap = JSON.parse(JSON.stringify(payload));
+        withGap.instance.nodes[2] = { id: 2 }; // present, but no x/y
+        const scene = fromVisualizerPayload(withGap);
+        const route = scene.solutions[0].routes[0];
+        expect(route.segments).toEqual([[[0, 0]], [[0, 0]]]);
+        expect(route.missingCoordinates).toBe(1);
+        expect(route.missingFromPayload).toBe(0);
+        expect(route.missingNodes).toBe(1);
+    });
+
+    it('distinguishes a node absent from the payload entirely (budget bug) from a coordinate-less node (expected)', () => {
+        // Here node 2 is not in `instance.nodes` at all -- simulating the
+        // route-preserving budget invariant being violated upstream. This
+        // must be counted separately (missingFromPayload) from a genuinely
+        // coordinate-less node, since one is a data property and the other
+        // is a bug assertScene.js should flag.
         const broken = JSON.parse(JSON.stringify(payload));
-        delete broken.instance.nodes[2]; // simulate a route-blind node budget
+        delete broken.instance.nodes[2];
         const scene = fromVisualizerPayload(broken);
-        expect(scene.solutions[0].routes[0].missingNodes).toBe(1);
+        const route = scene.solutions[0].routes[0];
+        expect(route.missingFromPayload).toBe(1);
+        expect(route.missingCoordinates).toBe(0);
+        expect(route.missingNodes).toBe(1);
     });
 
     it('surfaces the unserved count without requiring geometry', () => {
