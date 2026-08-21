@@ -17,7 +17,7 @@ import ReactWeather, { useOpenWeather } from 'react-open-weather';
 import BestResultsBarChart from './BestResultsBarChart';
 import GenericCard from './GenericCard';
 import StatsSection from './StatsSection';
-import NodeMapWidget from './NodeMapWidget';
+import ViaeNodeMapWidget from './ViaeNodeMapWidget';
 
 import authAxios from 'utils/axios';
 
@@ -67,7 +67,7 @@ const Dashboard = () => {
                     </Grid>
                 </Grid>
                 <Grid item xs={12}>
-                    <NodeMapWidget instance={instance} />
+                    <ViaeNodeMapWidget instance={instance} />
                 </Grid>
                 <Grid item xs={12}>
                     <Grid container spacing={gridSpacing}>

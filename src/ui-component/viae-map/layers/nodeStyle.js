@@ -21,6 +21,21 @@ export function colorFor(node, hoveredId, selectedId) {
 }
 
 /**
+ * Selection-ring color, theme-aware.
+ *
+ * Found via real browser verification (Phase 4), not a code review: a fixed
+ * white ring is invisible on ViaeMap's default light-mode canvas background
+ * -- clicking a node visibly did nothing even though selection state was
+ * updating correctly underneath. A dark ring in light mode / light ring in
+ * dark mode keeps it visible regardless of the page theme; this lives here
+ * rather than in a per-consumer override because every ViaeMap consumer
+ * shares the same canvas-background-follows-theme behaviour.
+ */
+export function selectionOutlineColor(themeMode) {
+    return themeMode === 'dark' ? [255, 255, 255, 255] : [20, 20, 20, 255];
+}
+
+/**
  * Per-mode radius configuration. This is where the "giant overlapping dots"
  * bug lived: ScatterplotLayer defaults to `radiusUnits: 'meters'`,
  * meaningless under Orthographic/Orbit views where positions are plain

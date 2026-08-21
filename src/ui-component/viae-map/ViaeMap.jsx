@@ -40,6 +40,7 @@ const DEFAULT_WIDTH = 600;
  * @param {{nodeId?: (number|string|null)}} [props.selection] controlled node selection
  * @param {(nodeId: number|string|null) => void} [props.onSelectionChange]
  * @param {{tooltip?: React.ComponentType}} [props.slots]
+ * @param {string} [props.emptyMessage] overrides the default empty-state text
  */
 export default function ViaeMap({
     scene,
@@ -48,7 +49,8 @@ export default function ViaeMap({
     error = null,
     selection,
     onSelectionChange,
-    slots = {}
+    slots = {},
+    emptyMessage
 }) {
     const theme = useTheme();
     const themeMode = theme.palette.mode === 'dark' ? 'dark' : 'light';
@@ -104,6 +106,7 @@ export default function ViaeMap({
             spaceMode: mode,
             hoveredId: hovered ? hovered.id : null,
             selectedId,
+            themeMode,
             onHover,
             onClick
         });
@@ -111,7 +114,19 @@ export default function ViaeMap({
     }, [scene, mode, themeMode, hovered, selectedId, onHover, onClick]);
 
     const TooltipSlot = slots.tooltip || MapTooltip;
-    const showCanvas = !loading && !error && scene && viewState;
+    // A Scene with zero nodes is not "no data to render yet", it's "there is
+    // nothing to plot" -- mounting an empty deck.gl canvas over it would be
+    // worse than a plain message (fitBoundsForView also has no real extent to
+    // work with here, per its own degenerate-bbox fallback). Distinguish "the
+    // instance genuinely has no nodes" from "it has nodes but none placeable
+    // in this space" using the adapter-reported skip count, same distinction
+    // the previous per-widget code made locally.
+    const isEmpty = scene && scene.nodes.length === 0;
+    const defaultEmptyMessage =
+        scene && scene.budget && scene.budget.skippedNoCoords > 0
+            ? 'No node has usable coordinates in this space.'
+            : 'No nodes to display.';
+    const showCanvas = !loading && !error && scene && !isEmpty && viewState;
 
     return (
         <Box ref={containerRef} sx={{ position: 'relative', width: '100%', height, overflow: 'hidden', borderRadius: 1 }}>
@@ -121,7 +136,7 @@ export default function ViaeMap({
                     {error}
                 </Alert>
             )}
-            {!loading && !error && !scene && (
+            {!loading && !error && (!scene || isEmpty) && (
                 <Box
                     sx={{
                         display: 'flex',
@@ -132,7 +147,7 @@ export default function ViaeMap({
                         color: 'text.secondary'
                     }}
                 >
-                    No data to display
+                    {emptyMessage || (scene ? defaultEmptyMessage : 'No data to display')}
                 </Box>
             )}
             {showCanvas && (

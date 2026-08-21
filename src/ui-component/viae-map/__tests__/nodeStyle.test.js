@@ -13,7 +13,7 @@
  * enormous, meaningless circles under Orthographic/Orbit views where
  * positions are plain Cartesian units, not degrees.
  */
-import { colorFor, radiusPropsFor } from '../layers/nodeStyle';
+import { colorFor, radiusPropsFor, selectionOutlineColor } from '../layers/nodeStyle';
 
 describe('radiusPropsFor', () => {
     it('uses pixel radius units for plane modes (2D and 3D)', () => {
@@ -48,5 +48,32 @@ describe('colorFor', () => {
 
     it('is brightened by either hover or selection', () => {
         expect(colorFor(customer, 2, null)).toEqual(colorFor(customer, null, 2));
+    });
+});
+
+describe('selectionOutlineColor', () => {
+    // Regression test for a real bug found via Phase 4 browser verification:
+    // a fixed white ring was invisible against ViaeMap's light-mode canvas
+    // background, so clicking a node visibly did nothing even though
+    // selection state was updating correctly underneath (confirmed via a
+    // debug log -- selectedId WAS set; only the ring's paint was wrong).
+    it('is dark in light mode, so it is visible against a light canvas', () => {
+        const [r, g, b, a] = selectionOutlineColor('light');
+        expect(r).toBeLessThan(128);
+        expect(g).toBeLessThan(128);
+        expect(b).toBeLessThan(128);
+        expect(a).toBe(255);
+    });
+
+    it('is light in dark mode, so it is visible against a dark canvas', () => {
+        const [r, g, b, a] = selectionOutlineColor('dark');
+        expect(r).toBeGreaterThan(128);
+        expect(g).toBeGreaterThan(128);
+        expect(b).toBeGreaterThan(128);
+        expect(a).toBe(255);
+    });
+
+    it('the two modes are never the same color', () => {
+        expect(selectionOutlineColor('light')).not.toEqual(selectionOutlineColor('dark'));
     });
 });

@@ -16,8 +16,9 @@ const ENTRIES = [
 ];
 
 export default function MapLegend({ nodes }) {
-    const present = new Set((nodes || []).map((n) => n.kind));
-    const entries = ENTRIES.filter((e) => present.has(e.kind));
+    const counts = new Map();
+    (nodes || []).forEach((n) => counts.set(n.kind, (counts.get(n.kind) || 0) + 1));
+    const entries = ENTRIES.filter((e) => counts.has(e.kind));
     if (!entries.length) return null;
 
     return (
@@ -37,7 +38,9 @@ export default function MapLegend({ nodes }) {
                 {entries.map((e) => (
                     <Stack key={e.kind} direction="row" spacing={1} alignItems="center">
                         <Box sx={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: cssColor(NODE_COLORS[e.kind]) }} />
-                        <Typography variant="caption">{e.label}</Typography>
+                        <Typography variant="caption">
+                            {e.label} ({counts.get(e.kind).toLocaleString()})
+                        </Typography>
                     </Stack>
                 ))}
             </Stack>
